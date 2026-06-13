@@ -1,0 +1,59 @@
+// Client to the local Whisper.cpp WebSocket server.
+// Streams 16kHz PCM Float32 chunks; receives partial/final transcripts.
+
+export type WhisperHandler = (text: string, isFinal: boolean) => void;
+
+export class WhisperStream {
+  private ws: WebSocket | null = null;
+  private audioCtx: AudioContext | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
+  private processor: ScriptProcessorNode | null = null;
+  private onResult: WhisperHandler;
+  private url: string;
+
+  constructor(onResult: WhisperHandler, url = "ws://localhost:9090") {
+    this.onResult = onResult;
+    this.url = url;
+  }
+
+  async start(stream: MediaStream) {
+    this.ws = new WebSocket(this.url);
+    this.ws.binaryType = "arraybuffer";
+    await new Promise<void>((res, rej) => {
+      this.ws!.onopen = () => res();
+      this.ws!.onerror = () => rej(new Error("Whisper WS failed"));
+    });
+
+    this.ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (typeof msg.text === "string") this.onResult(msg.text, !!msg.final);
+      } catch { /* ignore */ }
+    };
+
+    this.audioCtx = new AudioContext({ sampleRate: 16000 });
+    this.source = this.audioCtx.createMediaStreamSource(stream);
+    this.processor = this.audioCtx.createScriptProcessor(4096, 1, 1);
+    this.source.connect(this.processor);
+    this.processor.connect(this.audioCtx.destination);
+
+    this.processor.onaudioprocess = (e) => {
+      if (this.ws?.readyState !== WebSocket.OPEN) return;
+      const input = e.inputBuffer.getChannelData(0);
+      // send Float32 PCM
+      this.ws.send(input.buffer.slice(0));
+    };
+  }
+
+  stop() {
+    this.processor?.disconnect();
+    this.source?.disconnect();
+    this.audioCtx?.close();
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ eof: true }));
+    this.ws?.close();
+    this.ws = null;
+    this.processor = null;
+    this.source = null;
+    this.audioCtx = null;
+  }
+}
