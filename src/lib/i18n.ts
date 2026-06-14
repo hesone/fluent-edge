@@ -40,6 +40,9 @@ const dict = {
     liveTranscript: "Live transcript",
     skipQuestion: "Skip",
     scoring: "Scoring...",
+    startRecording: "Start Recording",
+    stopRecording: "Stop Recording",
+    stopped: "Stopped",
   },
 } as const;
 

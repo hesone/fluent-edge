@@ -45,6 +45,10 @@ export class WhisperStream {
     };
   }
 
+  connected() {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
   stop() {
     this.processor?.disconnect();
     this.source?.disconnect();

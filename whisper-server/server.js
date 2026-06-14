@@ -7,11 +7,11 @@
  *   WHISPER_BIN=/path/to/whisper.cpp/main
  *   WHISPER_MODEL=/path/to/models/ggml-base.en.bin
  */
-const { WebSocketServer } = require("ws");
-const { spawnSync } = require("child_process");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
+import { WebSocketServer } from "ws";
+import { spawnSync } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 const PORT = process.env.PORT || 9090;
 const WHISPER_BIN = process.env.WHISPER_BIN || "./whisper.cpp/build/bin/whisper-cli";
@@ -65,6 +65,40 @@ function transcribe(float32) {
   }
 }
 
+function cleanWhisperTranscript(text) {
+
+ return text
+
+    // remove bracket noise like [BLANK_AUDIO], [LAUGHTER]
+
+    .replace(/\[[^\]]*?\]/g, "")
+
+    // remove parenthesis noise like (laughing), (sighs), (door slams)
+
+    .replace(/\([^)]*?\)/g, "")
+
+    // remove leftover weird punctuation fragments
+
+    .replace(/[-_]{2,}/g, "")
+
+    // fix broken line breaks
+
+    .replace(/\s*\n\s*/g, " ")
+
+    // collapse multiple spaces
+
+    .replace(/\s{2,}/g, " ")
+
+    // remove spaces around punctuation
+
+    .replace(/\s+([.,!?])/g, "$1")
+
+    .replace(/\b(um+|uh+|erm+|like|you know)\b/gi, "")
+    
+    .trim();
+
+}
+
 wss.on("connection", (ws) => {
   let buffer = new Float32Array(0);
   const windowSize = Math.floor(WINDOW_SEC * SR);
@@ -74,7 +108,7 @@ wss.on("connection", (ws) => {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.eof && buffer.length > SR * 0.3) {
-          const text = transcribe(buffer);
+          const text = cleanWhisperTranscript(transcribe(buffer));
           ws.send(JSON.stringify({ text, final: true }));
           buffer = new Float32Array(0);
         }
@@ -90,7 +124,7 @@ wss.on("connection", (ws) => {
     if (buffer.length >= windowSize) {
       const chunk = buffer.slice(0, windowSize);
       buffer = buffer.slice(windowSize - SR * 0.3); // keep small overlap
-      const text = transcribe(chunk);
+      const text = cleanWhisperTranscript(transcribe(chunk));
       if (text) ws.send(JSON.stringify({ text, final: true }));
     }
   });

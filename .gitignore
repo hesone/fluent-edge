@@ -11,3 +11,4 @@ whisper.app
 .next
 package-lock.json
 yarn.lock
+*whisper.cpp

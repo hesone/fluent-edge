@@ -2,17 +2,14 @@
 import { useEffect, useRef, useState, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/store/useSessionStore";
-import { isRTL, t } from "@/lib/i18n";
+import { isRTL } from "@/lib/i18n";
 import { FaceScorer, type FaceMetrics } from "@/lib/faceScoring";
-import { WhisperStream } from "@/lib/whisperClient";
-import { matchTranscript, pronunciationScore, type WordState } from "@/lib/pronunciation";
 import ConfidenceGauge from "@/components/ConfidenceGauge";
-import WordSpans from "@/components/WordSpans";
-import LiveTranscript from "@/components/LiveTranscript";
 import Stepper from "@/components/Stepper";
 import {
   FaceLandmarker, FilesetResolver, type FaceLandmarkerResult,
 } from "@mediapipe/tasks-vision";
+import Transcription from "@/components/Transcription";
 
 const emptyMetrics: FaceMetrics = {
   confidence: 50, eyeContact: 50, nervousness: 30, engagement: 50, headStability: 70,
@@ -42,13 +39,10 @@ export default function Practice({ params }: { params: Promise<{ slug: string }>
 const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   const router = useRouter();
 
-  const {
-    questions, language, seniority, saveResult,
-  } = useSessionStore();
+  const { questions, language, saveResult } = useSessionStore();
 
   const rtl = isRTL(language);
   const q = questions[activeQuestion];
-  const words = q ? q.idealAnswer.split(/\s+/).filter(Boolean) : [];
 
   // refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -57,20 +51,13 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   const chunksRef = useRef<Blob[]>([]);
   const landmarkerRef = useRef<FaceLandmarker | null>(null);
   const scorerRef = useRef(new FaceScorer());
-  const whisperRef = useRef<WhisperStream | null>(null);
   const rafRef = useRef<number>(0);
   const faceSamples = useRef<number[]>([]);
-  const transcriptRef = useRef("");
 
   // state
   const [metrics, setMetrics] = useState<FaceMetrics>(emptyMetrics);
-  const [transcript, setTranscript] = useState("");
-  const [states, setStates] = useState<WordState[]>(words.map(() => "pending"));
-  const [allGreen, setAllGreen] = useState(false);  // first phase done
-  const [memoryDone, setMemoryDone] = useState(false);
-  const [showHint, setShowHint] = useState(false);
+  
   const [ready, setReady] = useState(false);
-  const [grading, setGrading] = useState(false);
   const [error, setError] = useState("");
 
   // ---- Setup camera + mic + models ----
@@ -104,22 +91,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
           outputFaceBlendshapes: false,
         });
 
-        // Whisper streaming (best-effort; works only if WS server running)
-        try {
-          whisperRef.current = new WhisperStream((text, isFinal) => {
-            transcriptRef.current = isFinal
-              ? (transcriptRef.current + " " + text).trim()
-              : transcriptRef.current;
-            const display = isFinal ? transcriptRef.current : (transcriptRef.current + " " + text).trim();
-            setTranscript(display);
-            handleTranscript(display);
-          });
-          await whisperRef.current.start(stream);
-        } catch (we) {
-          console.warn("Whisper unavailable", we);
-          setError("Whisper WebSocket not connected — start the whisper server (see README). Face scoring still works.");
-        }
-
         // Recording
         const recorder = new MediaRecorder(stream, { mimeType: pickMime() });
         recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
@@ -136,7 +107,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
     return () => {
       mounted = false;
       cancelAnimationFrame(rafRef.current);
-      whisperRef.current?.stop();
       recorderRef.current?.state !== "inactive" && recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       landmarkerRef.current?.close();
@@ -162,33 +132,8 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
     rafRef.current = requestAnimationFrame(run);
   }, []);
 
-  // ---- Transcript → word matching ----
-  function handleTranscript(text: string) {
-    const { states: st } = matchTranscript(text, words);
-    setStates(st);
-    const everyGreen = st.length > 0 && st.every((s) => s === "correct");
-    if (everyGreen && !allGreen) {
-      setAllGreen(true);
-      // reset transcript baseline for memory phase
-      transcriptRef.current = "";
-      setTranscript("");
-      setStates(words.map(() => "pending"));
-    }
-  }
-
-  // In memory phase, matching reveals karaoke words; full match => done
-  useEffect(() => {
-    if (allGreen && !memoryDone) {
-      const { states: st } = matchTranscript(transcript, words);
-      setStates(st);
-      if (st.length && st.every((s) => s === "correct")) setMemoryDone(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transcript, allGreen]);
-
   // ---- Finish & grade ----
-  async function finishQuestion() {
-    setGrading(true);
+  async function finishQuestion({transcript, pronScore, grammarScore, feedback, seniority_match}: {transcript: string, pronScore: number, grammarScore: number, feedback: string, seniority_match: string}) {
     // stop recording, build video URL
     const recorder = recorderRef.current;
     const videoUrl = await new Promise<string | null>((resolve) => {
@@ -203,29 +148,11 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
     // average face score
     const fs = faceSamples.current;
     const faceScore = fs.length ? Math.round(fs.reduce((a, b) => a + b, 0) / fs.length) : metrics.confidence;
-    const pron = pronunciationScore(states.length ? states : words.map(() => "correct"));
-
-    // grammar via Ollama
-    let grammarScore = pron, feedback = "", seniority_match = seniority;
-    try {
-      const res = await fetch("/api/grade", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question: q.question, idealAnswer: q.idealAnswer,
-          userAnswer: transcriptRef.current || transcript || q.idealAnswer,
-          seniority, language,
-        }),
-      });
-      const data = await res.json();
-      if (typeof data.score === "number") {
-        grammarScore = data.score; feedback = data.feedback; seniority_match = data.seniority_match;
-      }
-    } catch { /* fallback to pron */ }
 
     saveResult(q.id, {
-      faceScore, grammarScore, pronunciationScore: pron,
+      faceScore, grammarScore, pronunciationScore: pronScore || 0,
       feedback, seniorityMatch: seniority_match as any,
-      transcript: transcriptRef.current || transcript, videoUrl, completed: true,
+      transcript: transcript, videoUrl, completed: true,
     });
 
     // next or results
@@ -236,6 +163,18 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
       router.push("/results");
     }
   }
+  
+  const triggerRecording = useCallback(() => {
+    if (recorderRef.current) {
+      if (recorderRef.current.state === "recording") {
+        recorderRef.current.pause();
+      } else if (recorderRef.current.state === "paused") {
+        recorderRef.current.resume();
+      }
+    } else {
+      setError("Recorder not initialized");
+    }
+  }, [recorderRef.current]);
 
   if (!q) return <div className="flex min-h-screen items-center justify-center text-slate-400">No question.</div>;
 
@@ -249,57 +188,14 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
           {/* LEFT: answer area */}
           <div className="space-y-6">
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6">
-              <div className="mb-3 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
-                  {allGreen ? "From Memory 🧠" : t(language, "idealAnswer")}
-                </span>
-                {allGreen && !memoryDone && (
-                  <button onClick={() => setShowHint((s) => !s)}
-                    className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
-                    {showHint ? "Hide hint" : t(language, "showHint")}
-                  </button>
-                )}
-              </div>
-
-              {/* Phase 1: read-and-pronounce; Phase 2: karaoke from memory */}
-              {(!allGreen || showHint) && (
-                <WordSpans words={words} states={showHint && allGreen ? words.map(() => "pending") : states}
-                  hidden={false} karaokeMode={false} />
-              )}
-              {allGreen && !showHint && (
-                <WordSpans words={words} states={states} hidden={false} karaokeMode />
-              )}
-
-              {memoryDone && (
-                <div className="mt-6 animate-fade-in rounded-2xl bg-emerald-500/10 p-4 text-emerald-300">
-                  ✓ Excellent! You recited the full answer.
-                </div>
-              )}
-            </div>
-
-            <LiveTranscript text={transcript} />
-
-            <div className="flex gap-3">
-              {memoryDone ? (
-                <button onClick={finishQuestion} disabled={grading}
-                  className="flex-1 rounded-2xl bg-gradient-to-r from-emerald-600 to-emerald-500 py-4 font-semibold transition hover:brightness-110 disabled:opacity-50">
-                  {grading ? "Scoring…" :
-                    activeQuestion < questions.length - 1 ? t(language, "nextQuestion") : "Finish & See Results"}
-                </button>
-              ) : (
-                <div className="flex-1 rounded-2xl border border-slate-800 bg-slate-900/40 py-4 text-center text-slate-400">
-                  {allGreen ? "🎤 Now say the full answer from memory…" : "🎤 Read the answer aloud — words turn green as you nail them."}
-                </div>
-              )}
-              <button onClick={finishQuestion} disabled={grading}
-                className="rounded-2xl border border-slate-700 px-5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50">
-                {grading ? t(language, "scoring") : t(language, "skipQuestion")}
-              </button>
-            </div>
-
-            {error && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">{error}</p>}
-          </div>
+            <Transcription
+            activeQuestion={activeQuestion}
+            setError={setError}
+            transcriptFinished={finishQuestion}
+            stream={streamRef.current}
+            triggerRecording={triggerRecording} />
+			      {error && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">{error}</p>}
+		      </div>
 
           {/* RIGHT: camera + gauge */}
           <div className="space-y-4">
@@ -310,9 +206,11 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
                   Initializing camera & AI…
                 </div>
               )}
-              <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> REC
-              </div>
+              {recorderRef.current?.state === "recording" &&
+                <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> REC
+                </div>
+              }
             </div>
             <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-5">
               <ConfidenceGauge m={metrics} />
