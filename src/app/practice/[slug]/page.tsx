@@ -179,7 +179,7 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   if (!q) return <div className="flex min-h-screen items-center justify-center text-slate-400">No question.</div>;
 
   return (
-    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen px-4 py-8">
+    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen px-4 py-8" key={q?.id}>
       <div className="mx-auto max-w-6xl space-y-6">
         <Stepper current={activeQuestion} total={questions.length} />
 
@@ -188,12 +188,15 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
           {/* LEFT: answer area */}
           <div className="space-y-6">
-            <Transcription
-            activeQuestion={activeQuestion}
-            setError={setError}
-            transcriptFinished={finishQuestion}
-            stream={streamRef.current}
-            triggerRecording={triggerRecording} />
+            {streamRef.current && (
+              <Transcription
+                activeQuestion={activeQuestion}
+                setError={setError}
+                transcriptFinished={finishQuestion}
+                stream={streamRef.current}
+                triggerRecording={triggerRecording}
+              />
+            )}
 			      {error && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">{error}</p>}
 		      </div>
 

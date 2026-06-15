@@ -10,7 +10,7 @@ type TranscriptionProps = {
 	activeQuestion: number;
 	setError: (msg: string) => void;
 	transcriptFinished: (result: {transcript: string, pronScore: number, grammarScore: number, feedback: string, seniority_match: string}) => void;
-	stream: MediaStream | null;
+	stream: MediaStream;
 	triggerRecording: () => void;
 };
 
@@ -25,7 +25,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	} = useSessionStore();
 
 	const q = questions[activeQuestion];
-	const words = q ? q.idealAnswer.replace(/[.,!?;:"'()\[\]{}]/g, " ").split(/\s+/).filter(Boolean) : [];
+	const words = q ? q.idealAnswer.replace(/[,!?;:"()\[\]{}]/g, " ").split(/\s+/).filter(Boolean) : [];
 
 	const [transcript, setTranscript] = useState("");
 	const [states, setStates] = useState<WordState[]>(words.map(() => "pending"));
@@ -35,14 +35,11 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	const [grading, setGrading] = useState(false);
 
 	const isConnected = whisperRef.current?.connected() ?? false;
+	let tryCounter = 0
 
 	useEffect(() => {
 		(async () => {
 			// Whisper streaming (best-effort; works only if WS server running)
-			if (!stream) {
-				return;
-			}
-
 			try {
 				whisperRef.current = new WhisperStream((text, isFinal) => {
 					transcriptRef.current = isFinal
@@ -53,9 +50,13 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 					handleTranscript(display);
 				});
 				await whisperRef.current.start(stream);
+				tryCounter = 0
 			} catch (we) {
 				console.warn("Whisper unavailable", we);
-				setError("Whisper WebSocket not connected — start the whisper server (see README). Face scoring still works.");
+				if(tryCounter === 1)
+					setError("Whisper WebSocket not connected — start the whisper server (see README). Face scoring still works.");
+
+				tryCounter = tryCounter+1;
 			}
 		})();  // avoid "Async function in useEffect" lint error
 
@@ -63,7 +64,6 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 			whisperRef.current?.stop();
 		}
 	}, [stream]);
-
 
 	function triggerTranscription() {
 		if (whisperRef.current) {
@@ -75,30 +75,37 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 			}
 		}
 	}
-	
-  // In memory phase, matching reveals karaoke words; full match => done
-  useEffect(() => {
-    if (allGreen && !memoryDone) {
-      const { states: st } = matchTranscript(transcript, words);
-      setStates(st);
-      if (st.length && st.filter((s) => s === "correct").length / st.length >= treshold) setMemoryDone(true);
-    }
-  }, [transcript, allGreen]);
+
+	function resetTranscript() {
+		transcriptRef.current = "";
+		setTranscript("");
+		setStates(words.map(() => "pending"));
+	}
+
+	useEffect(() => {
+		const everyGreen = states.length > 0 && states.filter((s) => s === "correct").length / states.length >= treshold;
+		const everyReaded = states.length > 0 && states.every(s => s !== "pending")
+		if(everyReaded) {
+			if (everyGreen) {
+				if (!allGreen) {
+					setAllGreen(true);
+					// reset transcript baseline for memory phase
+					resetTranscript();
+				} else if (allGreen) {
+					setMemoryDone(true);
+					triggerTranscription();
+				}
+			} else {
+				resetTranscript()
+			}
+		}
+	},[states])
 
 	// ---- Transcript → word matching ----
-  function handleTranscript(text: string) {
+  const handleTranscript = (text: string) => {
     const { states: st } = matchTranscript(text, words);
-		console.log("Transcript states:", st);
     setStates(st);
-    const everyGreen = st.length > 0 && st.filter((s) => s === "correct").length / st.length >= treshold;
-    if (everyGreen && !allGreen) {
-      setAllGreen(true);
-      // reset transcript baseline for memory phase
-      transcriptRef.current = "";
-      setTranscript("");
-      setStates(words.map(() => "pending"));
-    }
-  }
+	};
 
 	// ---- Finish & grade ----
   async function onFinished() {
@@ -131,17 +138,20 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 					<span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
 						{allGreen ? "From Memory 🧠" : t(language, "idealAnswer")}
 					</span>
-					<div	className="flex items-center gap-2 text-xs text-slate-400">
+					<div	className="flex items-center gap-2 text-xs text-slate-400 h-1">
 						{allGreen && !memoryDone && (
 							<button onClick={() => setShowHint((s) => !s)}
 								className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
 								{showHint ? "Hide hint" : t(language, "showHint")}
 							</button>
 						)}
-						<button onClick={triggerTranscription}
-							className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
-							{isConnected ? t(language, "stopRecording") : t(language, "startRecording")}
-						</button>
+						
+						{isConnected &&
+							<button onClick={triggerTranscription}
+											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700 border-rose-500 border">
+								{isConnected ? t(language, "stopRecording") : t(language, "startRecording")}
+							</button>
+						}
 					</div>
 				</div>
 
@@ -162,6 +172,13 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 						✓ Excellent! You recited the full answer.
 					</div>
 				)}
+
+				{!isConnected &&
+					<button onClick={triggerTranscription}
+									className="rounded-lg bg-emerald-600 px-3 py-4 mt-4 text-xs hover:bg-emerald-500 w-full">
+								{t(language, "startRecording")}
+					</button>
+				}
 			</div>
 
 			<LiveTranscript text={transcript.slice(-500)} isStop={!isConnected} />
