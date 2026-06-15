@@ -126,7 +126,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: q.question, idealAnswer: q.idealAnswer,
-          userAnswer: transcriptRef.current || transcript || q.idealAnswer,
+          userAnswer: transcriptRef.current || transcript || '',
           seniority, language,
         }),
       });
