@@ -30,6 +30,7 @@ export class WhisperStream {
         language: config.language,
       })
     );
+
     this.ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);

@@ -1,4 +1,7 @@
 export type Lang = "en" | "de" | "fr" | "es" | "fa";
+export type LangLevel = "a1" | "a2" | "b1" | "b2" | "c1" | "c2"
+
+export const LANG_LEVEL: Record<LangLevel, string> = { a1: 'A1', a2: 'A2', b1: 'B1', b2: 'B2', c1: 'C1', c2: 'C2' }
 
 export const LANGS: { code: Lang; label: string; flag: string; rtl: boolean }[] = [
   { code: "en", label: "English", flag: "🇬🇧", rtl: false },
@@ -46,8 +49,7 @@ const dict = {
     general: "General",
     workspace: "Workspace",
     chooseConv: "Conversation type",
-    chooseLangLevel: "Language level",
-    langLevels: { a1: 'A1', a2: 'A2', b1: 'B1', b2: 'B2', c1: 'C1', c2: 'C2' }
+    chooseLangLevel: "Language level"
   },
 } as const;
 

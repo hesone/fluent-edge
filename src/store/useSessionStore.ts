@@ -1,11 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Lang } from "@/lib/i18n";
+import type { Lang, LangLevel } from "@/lib/i18n";
 
 export type Converstion = "general" | "workspace";
 export type Mode = "interview" | "professional";
 export type Seniority = "junior" | "mid" | "senior";
-export type LangLevel = "a1" | "a2" | "b1" | "b2" | "c1" | "c2"
 
 export interface QA {
   id: number;

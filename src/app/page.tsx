@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSessionStore, Mode, Seniority, Converstion, LangLevel } from "@/store/useSessionStore";
-import { LANGS, Lang, isRTL, t } from "@/lib/i18n";
+import { useSessionStore, Mode, Seniority, Converstion } from "@/store/useSessionStore";
+import { LANGS, LANG_LEVEL, Lang, LangLevel, isRTL, t } from "@/lib/i18n";
 
 export default function Onboarding() {
   const router = useRouter();
@@ -161,14 +161,14 @@ export default function Onboarding() {
               <section>
                 <label className="mb-2 block font-semibold">{t(language, "chooseLangLevel")}</label>
                 <div className="grid grid-cols-6 gap-3">
-                  {(["a1", "a2", "b1", "b2", "c1", "c2"] as LangLevel[]).map((s) => (
-                    <button key={s} onClick={() => setLangLevel(s)}
+                  {(Object.entries(LANG_LEVEL) as [LangLevel, string][]).map(([key, value]) =>
+                    <button key={key} onClick={() => setLangLevel(key)}
                       className={`rounded-xl border px-2 py-3 capitalize transition ${
-                        langLevel === s ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
+                        langLevel === key ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
                       }`}>
-                      {t(language, 'langLevels')[s as any]}
+                      {value}
                     </button>
-                  ))}
+                  )}
                 </div>
               </section>
             </>
