@@ -152,7 +152,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 						
 						{isConnected &&
 							<button onClick={triggerTranscription}
-											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700 border-rose-500 border">
+											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
 								{isConnected ? t(language, "stopRecording") : t(language, "startRecording")}
 							</button>
 						}
