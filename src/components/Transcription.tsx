@@ -113,6 +113,10 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 
 	// ---- Finish & grade ----
   async function onFinished() {
+		if(isConnected) {
+			triggerRecording();
+		}
+
     setGrading(true);
     const pron = pronunciationScore(states.length ? states : words.map(() => "correct"));
     // grammar via Ollama
