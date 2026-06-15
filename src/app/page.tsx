@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSessionStore, Mode, Seniority } from "@/store/useSessionStore";
+import { useSessionStore, Mode, Seniority, Converstion, LangLevel } from "@/store/useSessionStore";
 import { LANGS, Lang, isRTL, t } from "@/lib/i18n";
 
 export default function Onboarding() {
@@ -11,8 +11,10 @@ export default function Onboarding() {
   const [resumeText, setResumeText] = useState("");
   const [fileName, setFileName] = useState("");
   const [language, setLanguage] = useState<Lang>("en");
+  const [convType, setConvType] = useState<Converstion>("workspace");
   const [mode, setMode] = useState<Mode>("interview");
   const [seniority, setSeniority] = useState<Seniority>("mid");
+  const [langLevel, setLangLevel] = useState<LangLevel>("c1");
   const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
@@ -42,12 +44,12 @@ export default function Onboarding() {
   async function handleSubmit() {
     setLoading(true);
     setError("");
-    setOnboarding({ resumeText, language, mode, seniority });
+    setOnboarding({ resumeText, language, mode, seniority, convType, langLevel });
     try {
       const res = await fetch("/api/generate-questions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText, mode, seniority, language }),
+        body: JSON.stringify({ convType, langLevel, resumeText, mode, seniority, language }),
       });
       const data = await res.json();
       if (!data.questions?.length) throw new Error(data.detail || "no questions");
@@ -70,17 +72,22 @@ export default function Onboarding() {
         </header>
 
         <div className="space-y-8 rounded-3xl border border-slate-800 bg-slate-900/50 p-8 shadow-2xl backdrop-blur">
-          {/* Resume */}
+
+          {/* Conversation Type */}
           <section>
-            <label className="mb-2 block font-semibold">{t(language, "uploadResume")}</label>
-            <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-700 bg-slate-800/40 px-6 py-8 transition hover:border-brand-500">
-              <input type="file" accept="application/pdf" className="hidden" onChange={handleFile} />
-              <span className="text-3xl">📄</span>
-              <span className="text-slate-300">
-                {parsing ? "Reading PDF…" : fileName || "Click to upload PDF"}
-              </span>
-            </label>
-            {resumeText && <p className="mt-2 text-xs text-emerald-400">✓ Extracted {resumeText.length} chars</p>}
+            <label className="mb-2 block font-semibold">{t(language, "chooseConv")}</label>
+            <div className="grid grid-cols-2 gap-3">
+              {([["workspace", "💼", t(language, "workspace")], ["general", "🌞", t(language, "general")]] as const)
+                .map(([m, icon, label]) => (
+                <button key={m} onClick={() => setConvType(m as Converstion)}
+                  className={`rounded-xl border px-4 py-4 text-start transition ${
+                    convType === m ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
+                  }`}>
+                  <div className="text-2xl">{icon}</div>
+                  <div className="mt-1 font-medium">{label}</div>
+                </button>
+              ))}
+            </div>
           </section>
 
           {/* Language */}
@@ -99,37 +106,73 @@ export default function Onboarding() {
             </div>
           </section>
 
-          {/* Mode */}
-          <section>
-            <label className="mb-2 block font-semibold">{t(language, "chooseMode")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              {([["interview", "🎯", t(language, "interview")], ["professional", "💼", t(language, "professional")]] as const)
-                .map(([m, icon, label]) => (
-                <button key={m} onClick={() => setMode(m as Mode)}
-                  className={`rounded-xl border px-4 py-4 text-start transition ${
-                    mode === m ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                  }`}>
-                  <div className="text-2xl">{icon}</div>
-                  <div className="mt-1 font-medium">{label}</div>
-                </button>
-              ))}
-            </div>
-          </section>
+          {convType === 'workspace' &&
+            <>
+              {/* Resume */}
+              <section>
+                <label className="mb-2 block font-semibold">{t(language, "uploadResume")}</label>
+                <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-700 bg-slate-800/40 px-6 py-8 transition hover:border-brand-500">
+                  <input type="file" accept="application/pdf" className="hidden" onChange={handleFile} />
+                  <span className="text-3xl">📄</span>
+                  <span className="text-slate-300">
+                    {parsing ? "Reading PDF…" : fileName || "Click to upload PDF"}
+                  </span>
+                </label>
+                {resumeText && <p className="mt-2 text-xs text-emerald-400">✓ Extracted {resumeText.length} chars</p>}
+              </section>
 
-          {/* Seniority */}
-          <section>
-            <label className="mb-2 block font-semibold">{t(language, "chooseSeniority")}</label>
-            <div className="grid grid-cols-3 gap-3">
-              {(["junior", "mid", "senior"] as Seniority[]).map((s) => (
-                <button key={s} onClick={() => setSeniority(s)}
-                  className={`rounded-xl border px-4 py-3 capitalize transition ${
-                    seniority === s ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                  }`}>
-                  {t(language, s)}
-                </button>
-              ))}
-            </div>
-          </section>
+              {/* Mode */}
+              <section>
+                <label className="mb-2 block font-semibold">{t(language, "chooseMode")}</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {([["interview", "🎯", t(language, "interview")], ["professional", "💼", t(language, "professional")]] as const)
+                    .map(([m, icon, label]) => (
+                    <button key={m} onClick={() => setMode(m as Mode)}
+                      className={`rounded-xl border px-4 py-4 text-start transition ${
+                        mode === m ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
+                      }`}>
+                      <div className="text-2xl">{icon}</div>
+                      <div className="mt-1 font-medium">{label}</div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {/* Seniority */}
+              <section>
+                <label className="mb-2 block font-semibold">{t(language, "chooseSeniority")}</label>
+                <div className="grid grid-cols-3 gap-3">
+                  {(["junior", "mid", "senior"] as Seniority[]).map((s) => (
+                    <button key={s} onClick={() => setSeniority(s)}
+                      className={`rounded-xl border px-4 py-3 capitalize transition ${
+                        seniority === s ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
+                      }`}>
+                      {t(language, s)}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
+          }
+
+          {convType === 'general' &&
+            <>
+              {/* Seniority */}
+              <section>
+                <label className="mb-2 block font-semibold">{t(language, "chooseLangLevel")}</label>
+                <div className="grid grid-cols-6 gap-3">
+                  {(["a1", "a2", "b1", "b2", "c1", "c2"] as LangLevel[]).map((s) => (
+                    <button key={s} onClick={() => setLangLevel(s)}
+                      className={`rounded-xl border px-2 py-3 capitalize transition ${
+                        langLevel === s ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
+                      }`}>
+                      {t(language, 'langLevels')[s as any]}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
+          }
 
           {error && <p className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">{error}</p>}
 

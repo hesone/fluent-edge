@@ -2,8 +2,10 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Lang } from "@/lib/i18n";
 
+export type Converstion = "general" | "workspace";
 export type Mode = "interview" | "professional";
 export type Seniority = "junior" | "mid" | "senior";
+export type LangLevel = "a1" | "a2" | "b1" | "b2" | "c1" | "c2"
 
 export interface QA {
   id: number;
@@ -24,6 +26,8 @@ export interface QuestionResult {
 }
 
 interface SessionState {
+  convType: Converstion;
+  langLevel: LangLevel,
   resumeText: string;
   language: Lang;
   mode: Mode;
@@ -31,7 +35,7 @@ interface SessionState {
   questions: QA[];
   results: Record<number, QuestionResult>;
 
-  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "seniority">>) => void;
+  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "seniority" | "convType" | "langLevel">>) => void;
   setQuestions: (q: QA[]) => void;
   saveResult: (id: number, r: Partial<QuestionResult>) => void;
   reset: () => void;
@@ -45,6 +49,8 @@ const emptyResult = (): QuestionResult => ({
 export const useSessionStore = create<SessionState>()(
   persist(
     (set, get) => ({
+      convType: "workspace",
+      langLevel: "c1",
       resumeText: "",
       language: "en",
       mode: "interview",

@@ -154,7 +154,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 							</button>
 						)}
 						
-						{isConnected &&
+						{isConnected && !memoryDone &&
 							<button onClick={triggerTranscription}
 											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
 								{isConnected ? t(language, "stopRecording") : t(language, "startRecording")}
@@ -181,7 +181,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 					</div>
 				)}
 
-				{!isConnected &&
+				{!isConnected && !memoryDone &&
 					<button onClick={triggerTranscription}
 									className="rounded-lg bg-emerald-600 px-3 py-4 mt-4 text-xs hover:bg-emerald-500 w-full">
 								{t(language, "startRecording")}
@@ -202,10 +202,10 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 						{allGreen ? "🎤 Now say the full answer from memory…" : "🎤 Read the answer aloud — words turn green as you nail them."}
 					</div>
 				)}
-				<button onClick={onFinished} disabled={grading}
+				{!memoryDone && <button onClick={onFinished} disabled={grading}
 					className="rounded-2xl border border-slate-700 px-5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50">
 					{grading ? t(language, "scoring") : t(language, "skipQuestion")}
-				</button>
+				</button>}
 			</div>
 		</>
   );

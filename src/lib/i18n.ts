@@ -43,6 +43,11 @@ const dict = {
     startRecording: "Start Recording",
     stopRecording: "Stop Recording",
     stopped: "Stopped",
+    general: "General",
+    workspace: "Workspace",
+    chooseConv: "Conversation type",
+    chooseLangLevel: "Language level",
+    langLevels: { a1: 'A1', a2: 'A2', b1: 'B2', b2: 'B2', c1: 'C1', c2: 'C2' }
   },
 } as const;
 
