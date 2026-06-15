@@ -75,7 +75,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 			if(isConnected)	{
 				whisperRef.current.stop();
 			} else {
-				whisperRef.current.start(stream!);
+				whisperRef.current.start(stream!, { language });
 			}
 		}
 	}

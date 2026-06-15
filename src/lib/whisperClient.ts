@@ -16,14 +16,20 @@ export class WhisperStream {
     this.url = url;
   }
 
-  async start(stream: MediaStream) {
+  async start(stream: MediaStream, config: { language: string }) {
     this.ws = new WebSocket(this.url);
     this.ws.binaryType = "arraybuffer";
     await new Promise<void>((res, rej) => {
       this.ws!.onopen = () => res();
       this.ws!.onerror = () => rej(new Error("Whisper WS failed"));
     });
-
+  
+    this.ws.send(
+      JSON.stringify({
+        type: "config",
+        language: config.language,
+      })
+    );
     this.ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data);

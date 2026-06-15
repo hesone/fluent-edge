@@ -15,7 +15,7 @@ import path from "path";
 
 const PORT = process.env.PORT || 9090;
 const WHISPER_BIN = process.env.WHISPER_BIN || "./whisper.cpp/build/bin/whisper-cli";
-const WHISPER_MODEL = process.env.WHISPER_MODEL || "./whisper.cpp/models/ggml-base.en.bin";
+const WHISPER_MODEL = process.env.WHISPER_MODEL || "./whisper.cpp/models/ggml-base.bin";
 const WINDOW_SEC = 2.0;
 const SR = 16000;
 
@@ -45,14 +45,32 @@ function floatToWav(float32, sampleRate) {
   return buffer;
 }
 
-function transcribe(float32) {
+function transcribe(float32, language = "auto") {
   const wav = floatToWav(float32, SR);
   const tmp = path.join(os.tmpdir(), `whisper_${Date.now()}.wav`);
   fs.writeFileSync(tmp, wav);
   try {
-    const res = spawnSync(WHISPER_BIN, [
-      "-m", WHISPER_MODEL, "-f", tmp, "-nt", "-otxt", "-of", tmp,
-    ], { encoding: "utf-8" });
+    const args = [
+      "-m", WHISPER_MODEL,
+      "-f", tmp,
+      "-nt",
+      "-otxt",
+      "-of", tmp,
+    ];
+
+    if (language !== "auto") {
+      args.push("-l", language);
+    }
+
+    const res = spawnSync(
+      WHISPER_BIN,
+      args,
+      { encoding: "utf-8" }
+    );
+
+    // const res = spawnSync(WHISPER_BIN, [
+    //   "-m", WHISPER_MODEL, "-f", tmp, "-nt", "-otxt", "-of", tmp,
+    // ], { encoding: "utf-8" });
     let text = "";
     try { text = fs.readFileSync(tmp + ".txt", "utf-8").trim(); } catch {}
     fs.existsSync(tmp + ".txt") && fs.unlinkSync(tmp + ".txt");
@@ -101,14 +119,20 @@ function cleanWhisperTranscript(text) {
 
 wss.on("connection", (ws) => {
   let buffer = new Float32Array(0);
+  let language = "auto";
   const windowSize = Math.floor(WINDOW_SEC * SR);
 
   ws.on("message", (data, isBinary) => {
     if (!isBinary) {
       try {
         const msg = JSON.parse(data.toString());
+       if (msg.type === "config") {
+          language = msg.language || "auto";
+          return;
+        }
+        
         if (msg.eof && buffer.length > SR * 0.3) {
-          const text = cleanWhisperTranscript(transcribe(buffer));
+          const text = cleanWhisperTranscript(transcribe(buffer, language));
           ws.send(JSON.stringify({ text, final: true }));
           buffer = new Float32Array(0);
         }
@@ -124,7 +148,7 @@ wss.on("connection", (ws) => {
     if (buffer.length >= windowSize) {
       const chunk = buffer.slice(0, windowSize);
       buffer = buffer.slice(windowSize - SR * 0.3); // keep small overlap
-      const text = cleanWhisperTranscript(transcribe(chunk));
+      const text = cleanWhisperTranscript(transcribe(chunk, language));
       if (text) ws.send(JSON.stringify({ text, final: true }));
     }
   });
