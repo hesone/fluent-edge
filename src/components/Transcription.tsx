@@ -10,7 +10,7 @@ type TranscriptionProps = {
 	activeQuestion: number;
 	setError: (msg: string) => void;
 	transcriptFinished: (result: {transcript: string, pronScore: number, grammarScore: number, feedback: string, seniority_match: string}) => void;
-	stream: MediaStream;
+	stream: MediaStream | null;
 	triggerRecording: () => void;
 };
 
@@ -38,6 +38,10 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	let tryCounter = 0
 
 	useEffect(() => {
+		if(!!stream) {
+			return;
+		}
+
 		(async () => {
 			// Whisper streaming (best-effort; works only if WS server running)
 			try {
@@ -49,7 +53,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 					setTranscript(display);
 					handleTranscript(display);
 				});
-				await whisperRef.current.start(stream);
+				// await whisperRef.current.start(stream);
 				tryCounter = 0
 			} catch (we) {
 				console.warn("Whisper unavailable", we);

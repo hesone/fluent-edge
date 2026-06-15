@@ -95,6 +95,7 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
         const recorder = new MediaRecorder(stream, { mimeType: pickMime() });
         recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
         recorder.start();
+        recorder.pause();
         recorderRef.current = recorder;
 
         setReady(true);
@@ -188,7 +189,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
           {/* LEFT: answer area */}
           <div className="space-y-6">
-            {streamRef.current && (
               <Transcription
                 activeQuestion={activeQuestion}
                 setError={setError}
@@ -196,7 +196,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
                 stream={streamRef.current}
                 triggerRecording={triggerRecording}
               />
-            )}
 			      {error && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">{error}</p>}
 		      </div>
 
