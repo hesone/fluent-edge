@@ -49,7 +49,9 @@ const dict = {
     general: "General",
     workspace: "Workspace",
     chooseConv: "Conversation type",
-    chooseLangLevel: "Language level"
+    chooseLangLevel: "Language level",
+    situation: "Situation",
+    situationPlaceholder: "Describe a situation you want to be there.",
   },
 } as const;
 

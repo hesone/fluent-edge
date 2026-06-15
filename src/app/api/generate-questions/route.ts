@@ -13,9 +13,10 @@ const LANG_LEVEL: Record<string, string> = {
 };
 
 export async function POST(req: NextRequest) {
-  const { resumeText, mode, seniority, language, convType, langLevel } = await req.json();
+  const { resumeText, mode, seniority, language, convType, langLevel, situation } = await req.json();
   const level = LANG_LEVEL[langLevel] || "C1";
   const langName = LANG_NAME[language] || "English";
+  const genSituation = situation || 'in a random place or random situation'
   const modeDesc =
     mode === "interview"
       ? "a job interview"
@@ -35,8 +36,8 @@ Return ONLY valid JSON in this exact shape:
 All text must be in ${langName}.`;
 
 if(convType === 'general'){
-  prompt = `You are an expert ${langName} language teacher.
-Create exactly 10 everyday conversation questions suitable for a learner at ${level} level according to the CEFR framework.
+  prompt = `You are an expert native ${langName} language teacher.
+Create exactly 10 conversation questions suitable for a learner at ${level} level according to the CEFR framework and according to the learner wanna be ${genSituation}
 
 For EACH question:
 * Write a natural question in ${langName}.
@@ -47,6 +48,7 @@ For EACH question:
 * The ideal answer must contain plain spoken text only.
 * Keep answers realistic and conversational.
 * Avoid technical, academic, or job-specific topics unless they are appropriate for ${level}.
+* Assume user is ${genSituation} and questions and answers must be releated to this situation.
 
 Level guidelines:
 * A1: very simple sentences, basic vocabulary.

@@ -28,13 +28,14 @@ interface SessionState {
   convType: Converstion;
   langLevel: LangLevel,
   resumeText: string;
+  situation: string;
   language: Lang;
   mode: Mode;
   seniority: Seniority;
   questions: QA[];
   results: Record<number, QuestionResult>;
 
-  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "seniority" | "convType" | "langLevel">>) => void;
+  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "seniority" | "convType" | "langLevel" | "situation">>) => void;
   setQuestions: (q: QA[]) => void;
   saveResult: (id: number, r: Partial<QuestionResult>) => void;
   reset: () => void;
@@ -54,6 +55,7 @@ export const useSessionStore = create<SessionState>()(
       language: "en",
       mode: "interview",
       seniority: "mid",
+      situation: "",
       questions: [],
       results: {},
 

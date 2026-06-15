@@ -15,6 +15,7 @@ export default function Onboarding() {
   const [mode, setMode] = useState<Mode>("interview");
   const [seniority, setSeniority] = useState<Seniority>("mid");
   const [langLevel, setLangLevel] = useState<LangLevel>("c1");
+  const [situation, setSituation] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
@@ -44,12 +45,12 @@ export default function Onboarding() {
   async function handleSubmit() {
     setLoading(true);
     setError("");
-    setOnboarding({ resumeText, language, mode, seniority, convType, langLevel });
+    setOnboarding({ resumeText, language, mode, seniority, convType, langLevel, situation });
     try {
       const res = await fetch("/api/generate-questions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ convType, langLevel, resumeText, mode, seniority, language }),
+        body: JSON.stringify({ convType, langLevel, resumeText, mode, seniority, language, situation }),
       });
       const data = await res.json();
       if (!data.questions?.length) throw new Error(data.detail || "no questions");
@@ -157,7 +158,7 @@ export default function Onboarding() {
 
           {convType === 'general' &&
             <>
-              {/* Seniority */}
+              {/* Language level */}
               <section>
                 <label className="mb-2 block font-semibold">{t(language, "chooseLangLevel")}</label>
                 <div className="grid grid-cols-6 gap-3">
@@ -170,6 +171,21 @@ export default function Onboarding() {
                     </button>
                   )}
                 </div>
+              </section>
+            </>
+          }
+
+          {convType === 'general' &&
+            <>
+              {/* Topic */}
+              <section>
+                <label className="mb-2 block font-semibold">{t(language, "situation")}</label>
+                <input
+                type="text"
+                className="rounded-xl border border-slate-700 bg-slate-900/60 p-4 w-full focus:bg-slate-600"
+                placeholder={t(language, "situationPlaceholder")}
+                value={situation}
+                onChange={event => setSituation(event.target.value)}/>
               </section>
             </>
           }
