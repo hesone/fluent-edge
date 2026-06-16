@@ -1,6 +1,8 @@
 {
   "name": "fluent-edge",
   "version": "1.0.0",
+  "author": "Hesam Yazdani",
+  "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "next dev",
