@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ollamaGenerate, safeJSON } from "@/lib/ollama";
+import { LANG_LEVEL, LANG_NAME } from "@/lib/i18n";
+import { generateText, Output } from "ai";
+import { createOllama } from "ai-sdk-ollama";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const LANG_NAME: Record<string, string> = {
-  en: "English", de: "German", fr: "French", es: "Spanish", fa: "Farsi (Persian)",
-};
+const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
+const MODEL = process.env.OLLAMA_MODEL || "llama3.2:3b";
 
-const LANG_LEVEL: Record<string, string> = {
-  a1: "A1", a2: "A2", b1: "B1", b2: "B2", c1: "C1", c2: "C2",
-};
+const ollamaGenerate = createOllama({
+  baseURL: OLLAMA_URL
+});
 
 export async function POST(req: NextRequest) {
   const { resumeText, mode, seniority, language, convType, langLevel, situation } = await req.json();
@@ -31,9 +33,10 @@ RESUME:
 ${resumeText || "No resume provided. Use general professional background."}
 """
 
+All text must be in ${langName}.
+
 Return ONLY valid JSON in this exact shape:
-{"questions":[{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]}
-All text must be in ${langName}.`;
+[{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]`;
 
 if(convType === 'general'){
   prompt = `You are an expert native ${langName} language teacher.
@@ -58,25 +61,39 @@ Level guidelines:
 * C1: nuanced opinions and complex ideas.
 * C2: near-native fluency and sophisticated expression.
 
+All text must be in ${langName}.
+
 Return ONLY valid JSON in this exact shape:
-{"questions":[{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]}
-All text must be in ${langName}.`
+[{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]`
+
 }
 
   try {
-    const raw = await ollamaGenerate(prompt, { json: true });
-    const parsed = safeJSON<{ questions: { id: number; question: string; idealAnswer: string }[] }>(
-      raw, { questions: [] }
-    );
-    let questions = parsed.questions || [];
-    questions = questions.slice(0, 10).map((q, i) => ({
-      id: i + 1,
-      question: String(q.question || `Question ${i + 1}`),
-      idealAnswer: String(q.idealAnswer || ""),
-    }));
+    const { output } = await generateText({
+      model: ollamaGenerate(MODEL),
+      prompt: prompt,
+      output: Output.object({
+        schema: z.array(
+          z.object({
+            id: z.number(),
+            question: z.string(),
+            idealAnswer: z.string(),
+          })
+        ),
+      }),
+      providerOptions: {
+        ollama: {
+          format: "json",
+        },
+      }
+    });
+
+    let questions: { id: number; question: string; idealAnswer: string }[] = output || []  
+
     if (questions.length === 0) throw new Error("empty");
     return NextResponse.json({ questions });
   } catch (e) {
+    console.log(e)
     return NextResponse.json({ error: "Generation failed", detail: String(e) }, { status: 500 });
   }
 }

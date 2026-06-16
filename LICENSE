@@ -57,8 +57,14 @@ but not limited to:
   - Tailwind CSS (MIT License)
     https://github.com/tailwindlabs/tailwindcss/blob/master/LICENSE
 
-  - pdf-parse (MIT License)
-    https://www.npmjs.com/package/pdf-parse
+  - PDF Parse (Apache License 2.0)
+    https://github.com/mehmet-kozan/pdf-parse/blob/main/LICENSE
+
+  - Vercel AI (Apache License 2.0)
+    https://github.com/vercel/ai/blob/main/LICENSE
+
+  - Zod (MIT License)
+    https://github.com/colinhacks/zod/blob/main/LICENSE
 
 Users are solely responsible for reviewing and complying with the licenses of
 all third-party software and models they install or use in conjunction with

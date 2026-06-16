@@ -1,7 +1,11 @@
 export type Lang = "en" | "de" | "fr" | "es" | "fa";
 export type LangLevel = "a1" | "a2" | "b1" | "b2" | "c1" | "c2"
 
-export const LANG_LEVEL: Record<LangLevel, string> = { a1: 'A1', a2: 'A2', b1: 'B1', b2: 'B2', c1: 'C1', c2: 'C2' }
+export const LANG_NAME: Record<string, string> = {
+  en: "English", de: "German", fr: "French", es: "Spanish", fa: "Farsi (Persian)",
+};
+
+export const LANG_LEVEL: Record<string, string> = { a1: 'A1', a2: 'A2', b1: 'B1', b2: 'B2', c1: 'C1', c2: 'C2' }
 
 export const LANGS: { code: Lang; label: string; flag: string; rtl: boolean }[] = [
   { code: "en", label: "English", flag: "🇬🇧", rtl: false },

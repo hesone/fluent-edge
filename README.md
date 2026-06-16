@@ -153,7 +153,9 @@ commercial use.
 | [React](https://github.com/facebook/react/blob/main/LICENSE) | MIT | UI library |
 | [Zustand](https://github.com/pmndrs/zustand/blob/main/LICENSE) | MIT | State management |
 | [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss/blob/master/LICENSE) | MIT | Utility-first CSS framework |
-| [pdf-parse](https://www.npmjs.com/package/pdf-parse) | MIT | Resume PDF text extraction |
+| [PDF Parse](https://github.com/mehmet-kozan/pdf-parse/blob/main/LICENSE) | Apache 2.0 | Resume PDF text extraction |
+| [Vercel AI](https://github.com/vercel/ai/blob/main/LICENSE) | Apache 2.0 | Vercel AI SDK |
+| [Zod](https://github.com/colinhacks/zod/blob/main/LICENSE) | MIT | Schema Validation |
  
 > **Apache 2.0 note:** If you redistribute a binary that includes MediaPipe, Apache 2.0 requires
 > you to include a copy of the license and any applicable NOTICE file.
