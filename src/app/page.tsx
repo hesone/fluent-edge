@@ -45,7 +45,6 @@ export default function Onboarding() {
   async function handleSubmit() {
     setLoading(true);
     setError("");
-    setOnboarding({ resumeText, language, mode, seniority, convType, langLevel, situation });
     try {
       const res = await fetch("/api/generate-questions", {
         method: "POST",
@@ -54,6 +53,7 @@ export default function Onboarding() {
       });
       const data = await res.json();
       if (!data.questions?.length) throw new Error(data.detail || "no questions");
+      setOnboarding({ resumeText, language, mode, seniority, convType, langLevel, situation, topic: data.topic });
       setQuestions(data.questions);
       router.push("/study");
     } catch (e) {

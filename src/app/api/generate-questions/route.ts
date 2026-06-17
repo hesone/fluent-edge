@@ -36,7 +36,10 @@ ${resumeText || "No resume provided. Use general professional background."}
 All text must be in ${langName}.
 
 Return ONLY valid JSON in this exact shape:
-[{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]`;
+{
+  topic: ${seniority} - ${langName} - ${mode}
+  questions: [{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]
+}`;
 
 if(convType === 'general'){
   prompt = `You are an expert native ${langName} language teacher.
@@ -64,7 +67,10 @@ Level guidelines:
 All text must be in ${langName}.
 
 Return ONLY valid JSON in this exact shape:
-[{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]`
+{
+  topic: ${level} - ${langName} - Situation choosed by ai
+  questions: [{"id":1,"question":"...","idealAnswer":"..."}, ... 10 items]
+}`
 
 }
 
@@ -73,13 +79,16 @@ Return ONLY valid JSON in this exact shape:
       model: ollamaGenerate(MODEL),
       prompt: prompt,
       output: Output.object({
-        schema: z.array(
-          z.object({
-            id: z.number(),
-            question: z.string(),
-            idealAnswer: z.string(),
-          })
-        ),
+        schema: z.object({
+          topic: z.string(),
+          questions: z.array(
+            z.object({
+              id: z.number(),
+              question: z.string(),
+              idealAnswer: z.string(),
+            })
+          )
+        }) 
       }),
       providerOptions: {
         ollama: {
@@ -88,10 +97,11 @@ Return ONLY valid JSON in this exact shape:
       }
     });
 
-    let questions: { id: number; question: string; idealAnswer: string }[] = output || []  
+    const topic = output.topic
+    const questions: { id: number; question: string; idealAnswer: string }[] = output.questions || []  
 
     if (questions.length === 0) throw new Error("empty");
-    return NextResponse.json({ questions });
+    return NextResponse.json({ questions, topic });
   } catch (e) {
     console.log(e)
     return NextResponse.json({ error: "Generation failed", detail: String(e) }, { status: 500 });

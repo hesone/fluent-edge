@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Lang, LangLevel } from "@/lib/i18n";
+import { BsQuestionSquare } from "react-icons/bs";
 
 export type Converstion = "general" | "workspace";
 export type Mode = "interview" | "professional";
@@ -29,14 +30,16 @@ interface SessionState {
   langLevel: LangLevel,
   resumeText: string;
   situation: string;
+  topic: string;
   language: Lang;
   mode: Mode;
   seniority: Seniority;
   questions: QA[];
   results: Record<number, QuestionResult>;
 
-  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "seniority" | "convType" | "langLevel" | "situation">>) => void;
+  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "topic" | "seniority" | "convType" | "langLevel" | "situation">>) => void;
   setQuestions: (q: QA[]) => void;
+  setAnswerForQuestion: (qId: number, a: string) => void;
   saveResult: (id: number, r: Partial<QuestionResult>) => void;
   reset: () => void;
 }
@@ -53,6 +56,7 @@ export const useSessionStore = create<SessionState>()(
       langLevel: "c1",
       resumeText: "",
       language: "en",
+      topic: "",
       mode: "interview",
       seniority: "mid",
       situation: "",
@@ -65,6 +69,11 @@ export const useSessionStore = create<SessionState>()(
           questions,
           results: Object.fromEntries(questions.map((q) => [q.id, emptyResult()])),
         }),
+      setAnswerForQuestion: (qId, answer) => {
+        set({
+          questions: get().questions.map(question => (question.id === qId ? { ...question, idealAnswer: answer }: question))
+        })
+      },
       saveResult: (id, r) => {
         const cur = get().results[id] ?? emptyResult();
         const merged = { ...cur, ...r };
