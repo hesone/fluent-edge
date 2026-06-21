@@ -11,3 +11,4 @@ whisper.cpp
 .next
 package-lock.json
 yarn.lock
+piper-voices

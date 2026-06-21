@@ -1,17 +1,20 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/store/useSessionStore";
 import { isRTL, t } from "@/lib/i18n";
 import Stepper from "@/components/Stepper";
-import { LuRefreshCcw } from "react-icons/lu";
+import { LuRefreshCcw, LuVolume2, LuVolumeOff } from "react-icons/lu";
+import TTSSentence, { ChildHandle } from "@/components/TTSSentences";
 
 export default function Study() {
   const router = useRouter();
   const { questions, resumeText, language, topic, setAnswerForQuestion } = useSessionStore();
   const [answer, setAnswer] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [playing, setPlaying] = useState<boolean>(false)
   const [idx, setIdx] = useState(0);
+  const ttsRef = useRef<ChildHandle>(null)
   const rtl = isRTL(language);
 
   useEffect(() => {
@@ -52,10 +55,29 @@ export default function Study() {
     setLoading(false);
   };
   
-  function proceed() {
+  function proceed(qIdx?: number) {
+    if(playing){
+      toggleReading()
+    }
+    ttsRef.current?.stopReading()
+    if (typeof qIdx === 'number') {
+      setIdx(qIdx)
+      return
+    }
+
     if (idx < questions.length - 1) setIdx(idx + 1);
     else {
       router.push("/practice/0");
+    }
+  }
+
+  function toggleReading() {
+    if(!!ttsRef.current?.playing) {
+      ttsRef.current.stopReading()
+      setPlaying(false)
+    } else {
+      ttsRef.current?.readAloud()
+      setPlaying(true)
     }
   }
 
@@ -75,20 +97,27 @@ export default function Study() {
               <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-emerald-400">
                 {t(language, "idealAnswer")}
               </div>
-              <button disabled={loading} className="p-2 rounded border border-slate-800 bg-slate-900/50 text-sm" onClick={ask}>
-                <LuRefreshCcw className={loading ? "animate-spin" : ""} />
-              </button>
+              <div className="flex gap-2">
+                {!loading &&
+                  <button className="p-2 rounded border border-slate-800 bg-slate-900/50 text-md" onClick={toggleReading}>
+                    {!playing ? <LuVolume2 /> : <LuVolumeOff />}
+                  </button>
+                }
+                <button disabled={loading} className="p-2 rounded border border-slate-800 bg-slate-900/50 text-sm" onClick={ask}>
+                  <LuRefreshCcw className={loading ? "animate-spin" : ""} />
+                </button>
+              </div>
             </div>
             {!answer ?
               (loading ? 
-                new Array(20).fill(0).map(() => <span style={{ width: `${Math.random() * (100 - 50) + 50}px` }} className="inline-block h-5 rounded bg-brand-500/20 animate-pulse mr-2 mb-1" /> ) :
-                <p className="text-lg leading-relaxed text-slate-200">{q.idealAnswer}</p>
+                new Array(20).fill(0).map((_, idx) => <span key={idx} style={{ width: `${Math.random() * (100 - 50) + 50}px` }} className="inline-block h-5 rounded bg-brand-500/20 animate-pulse mr-2 mb-1" /> ) :
+                <TTSSentence ref={ttsRef} text={q.idealAnswer} lang={language} onDone={() => setPlaying(false)} />
               ) :
               <p className="text-lg leading-relaxed text-slate-200">{answer}</p>
             }
           </div>
 
-          <button onClick={proceed}
+          <button onClick={() => proceed()}
             disabled={loading}
             className="mt-8 w-full rounded-2xl bg-gradient-to-r from-brand-600 to-brand-500 py-4 font-semibold transition hover:brightness-110">
             {idx < questions.length - 1 ? t(language, "readyToPractice") : t(language, "startSession")}
@@ -97,7 +126,7 @@ export default function Study() {
 
         <div className="flex justify-center gap-1.5">
           {questions.map((_, i) => (
-            <button key={i} onClick={() => setIdx(i)}
+            <button key={i} onClick={() => proceed(i)}
               className={`h-2 rounded-full transition-all ${i === idx ? "w-8 bg-brand-500" : "w-2 bg-slate-700"}`} />
           ))}
         </div>

@@ -1,6 +1,6 @@
 import { t } from "@/lib/i18n";
 import { matchTranscript, pronunciationScore, WordState } from "@/lib/pronunciation";
-import { WhisperStream } from "@/lib/whisperClient";
+import { WhisperStream } from "@/lib/sttClient";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useEffect, useRef, useState } from "react";
 import LiveTranscript from "./LiveTranscript";
