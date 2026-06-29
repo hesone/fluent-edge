@@ -1,14 +1,10 @@
 import { Mode } from "@/store/useSessionStore";
 import { streamText } from "ai";
-import { createOllama } from "ai-sdk-ollama";
+import { llm } from "@/lib/llm";
 import { NextRequest, NextResponse } from "next/server";
 
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MODEL = process.env.OLLAMA_MODEL || "llama3.2:3b";
-
-const ollamaGenerate = createOllama({
-  baseURL: OLLAMA_URL
-});
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
     const { question, topic, resume } = await req.json();
@@ -55,8 +51,8 @@ Return a text as an answer.
 `
 
   try {
-    const result = await streamText({
-      model: ollamaGenerate(MODEL),
+    const result = streamText({
+      model: llm,
       prompt: prompt
     });
 

@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.18",
+    "@openrouter/ai-sdk-provider": "^2.10.0",
     "ai": "^6.0.206",
-    "ai-sdk-ollama": "^3.8.7",
     "canvas-confetti": "^1.9.3",
     "next": "^16.0.0",
     "pdf-parse": "^1.1.1",

@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createOllama } from "ai-sdk-ollama";
 import { z } from "zod";
 import { generateText, Output } from "ai";
+import { llm } from "@/lib/llm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MODEL = process.env.OLLAMA_MODEL || "llama3.2:3b";
-
-const ollamaGenerate = createOllama({
-  baseURL: OLLAMA_URL
-});
 
 export async function POST(req: NextRequest) {
   const { question, idealAnswer, userAnswer, seniority, language } = await req.json();
@@ -30,7 +23,7 @@ Return ONLY JSON:
 
   try {
      const { output } = await generateText({
-      model: ollamaGenerate(MODEL),
+      model: llm,
       prompt: prompt,
       output: Output.object({
         schema: z.object({
@@ -39,11 +32,6 @@ Return ONLY JSON:
           seniority_match: z.string(),
         })
       }),
-      providerOptions: {
-        ollama: {
-          format: "json",
-        },
-      }
     });
 
     const parsed = output || { score: 60, feedback: "Good attempt.", seniority_match: seniority };

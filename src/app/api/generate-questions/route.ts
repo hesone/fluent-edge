@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LANG_LEVEL, LANG_NAME } from "@/lib/i18n";
 import { generateText, Output } from "ai";
-import { createOllama } from "ai-sdk-ollama";
+import { llm } from "@/lib/llm";
 import { z } from "zod";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
-const MODEL = process.env.OLLAMA_MODEL || "llama3.2:3b";
-
-const ollamaGenerate = createOllama({
-  baseURL: OLLAMA_URL
-});
 
 export async function POST(req: NextRequest) {
   const { resumeText, mode, seniority, language, convType, langLevel, situation } = await req.json();
@@ -76,7 +69,7 @@ Return ONLY valid JSON in this exact shape:
 
   try {
     const { output } = await generateText({
-      model: ollamaGenerate(MODEL),
+      model: llm,
       prompt: prompt,
       output: Output.object({
         schema: z.object({
@@ -88,13 +81,8 @@ Return ONLY valid JSON in this exact shape:
               idealAnswer: z.string(),
             })
           )
-        }) 
+        })
       }),
-      providerOptions: {
-        ollama: {
-          format: "json",
-        },
-      }
     });
 
     const topic = output.topic
