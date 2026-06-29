@@ -17,6 +17,23 @@ export const LANGS: { code: Lang; label: string; flag: string; rtl: boolean }[] 
 
 export const isRTL = (lang: Lang) => lang === "fa";
 
+// Single source of truth for BCP-47 locale codes. Every supported language
+// maps to one unique tag, used by both speech recognition (STT) and speech
+// synthesis (TTS) so the two never drift apart.
+export const LOCALE: Record<Lang, string> = {
+  en: "en-US",
+  de: "de-DE",
+  fr: "fr-FR",
+  es: "es-ES",
+  fa: "fa-IR",
+};
+
+/** Map an app language code (or any string) to its BCP-47 tag. */
+export const toBCP47 = (lang: string): string => {
+  const base = (lang || "en").toLowerCase().split("-")[0] as Lang;
+  return LOCALE[base] ?? lang ?? "en-US";
+};
+
 const dict = {
   en: {
     appName: "FluentEdge",

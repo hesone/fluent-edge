@@ -3,177 +3,200 @@
 import { useEffect, useRef, useCallback, useState, useImperativeHandle, Ref } from "react";
 import { TTSClient } from "@/lib/ttsClient";
 
-// ─── Word timing estimation ─────────────────────────────────────────────────
+// ─── Word spans ──────────────────────────────────────────────────────────────
 
-interface WordTiming {
-  start: number; // seconds, relative to playback start
-  end: number;
+interface WordSpan {
+  word: string;
+  start: number; // char offset of the word's first character in `text`
+  end: number;   // char offset just past the word's last character
 }
 
-function estimateWordTimings(words: string[], durationSecs: number): WordTiming[] {
-  if (!words.length || durationSecs <= 0) return [];
- 
-  function weightOf(word: string): number {
-    const letters = word.replace(/[^\p{L}\p{N}]/gu, "").length;
-    const base = Math.max(letters, 1);
-    if (/[.!?]["'\u201d\u2019)\]]*$/.test(word)) return base + 4; // sentence end — longer pause
-    if (/[,;:\u2014\u2013-]["'\u201d\u2019)\]]*$/.test(word)) return base + 2; // clause break — shorter pause
-    return base;
+// Split text into whitespace-delimited words, keeping each word's character
+// offsets so a SpeechSynthesis boundary `charIndex` can be mapped to a word.
+// The ordering/count matches `text.split(/\s+/).filter(Boolean)` used to render.
+function computeWordSpans(text: string): WordSpan[] {
+  const spans: WordSpan[] = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    spans.push({ word: m[0], start: m.index, end: m.index + m[0].length });
   }
- 
-  const weights = words.map(weightOf);
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
- 
-  // Fixed per-word gap, independent of total duration or word count.
-  // Also self-limits for very short clips so a handful of words don't
-  // get swallowed entirely by gap time.
-  const GAP = Math.min(0.03, durationSecs / (words.length * 4));
-  const totalGapTime = GAP * (words.length - 1);
- 
-  // Never let "real speaking time" drop below half the total duration,
-  // however many words or however the gap math works out.
-  const textTime = Math.max(durationSecs - totalGapTime, durationSecs * 0.5);
- 
-  let cursor = 0;
-  return weights.map((w) => {
-    const wordDur = (w / totalWeight) * textTime;
-    const start = cursor;
-    const end = start + wordDur;
-    cursor = end + GAP;
-    return { start, end };
-  });
+  return spans;
 }
- 
+
+// Find the index of the word that contains (or most recently started before)
+// the given character offset.
+function wordIndexAt(spans: WordSpan[], charIndex: number): number {
+  let idx = -1;
+  for (let i = 0; i < spans.length; i++) {
+    if (charIndex >= spans[i].start) idx = i;
+    else break;
+  }
+  return idx;
+}
+
 // ─── Hook ────────────────────────────────────────────────────────────────────
- 
+
 interface UseTTSOptions {
   text: string;
   lang?: string;
   onDone?: () => void;
 }
- 
+
+// Approx characters spoken per second at rate=1 — the starting guess before
+// the engine's real rate has been measured. Only used for voices that emit no
+// boundary events.
+const CHARS_PER_SEC = 13;
+
+// Self-calibration. The Web Speech API won't tell us an utterance's duration up
+// front, but we can time how long each one actually takes and learn from it:
+//   • `measuredCharsPerSec` — a running estimate of this engine's speaking rate,
+//     so the very first highlight of any new text is close and gets better.
+//   • `durationCache` — the exact measured duration per text, so replaying the
+//     same answer (common in Study mode) highlights in near-perfect sync.
+// Module-level so the calibration persists across component instances/questions.
+let measuredCharsPerSec = CHARS_PER_SEC;
+const durationCache = new Map<string, number>();
+
+function estimatedDuration(text: string): number {
+  const cached = durationCache.get(text);
+  if (cached) return cached;
+  return Math.max(text.length / measuredCharsPerSec, 0.4);
+}
+
+// Fold a freshly measured utterance into the calibration (outliers ignored —
+// e.g. a playback the user stopped early).
+function recordMeasurement(text: string, durationSecs: number) {
+  if (durationSecs < 0.3 || !text.length) return;
+  const cps = text.length / durationSecs;
+  if (cps < 4 || cps > 35) return; // implausible → likely interrupted
+  durationCache.set(text, durationSecs);
+  measuredCharsPerSec = measuredCharsPerSec * 0.7 + cps * 0.3; // smooth
+}
+
+// Estimate a [start,end] time (seconds, relative to playback start) for each
+// word, distributing an estimated total duration by word length with a little
+// extra weight on punctuation pauses.
+function estimateWordTimings(words: string[], durationSecs: number): { start: number; end: number }[] {
+  if (!words.length || durationSecs <= 0) return [];
+  const weightOf = (w: string) => {
+    const base = Math.max(w.replace(/[^\p{L}\p{N}]/gu, "").length, 1);
+    if (/[.!?]["'”’)\]]*$/.test(w)) return base + 4;
+    if (/[,;:—–-]["'”’)\]]*$/.test(w)) return base + 2;
+    return base;
+  };
+  const weights = words.map(weightOf);
+  const total = weights.reduce((a, b) => a + b, 0);
+  let cursor = 0;
+  return weights.map((wt) => {
+    const dur = (wt / total) * durationSecs;
+    const start = cursor;
+    cursor += dur;
+    return { start, end: cursor };
+  });
+}
+
 function useTTS({ text, lang = "en", onDone }: UseTTSOptions) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
-  const [doneIndex, setDoneIndex] = useState<number>(-1);
   const [playing, setPlaying] = useState(false);
- 
+
   // One TTSClient instance per component, created lazily, torn down on unmount.
   const clientRef = useRef<TTSClient | null>(null);
   const rafRef = useRef<number | null>(null);
-  const drainTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
- 
+  const cancelledRef = useRef(false);
+
   function getClient(): TTSClient {
     if (!clientRef.current) clientRef.current = new TTSClient();
     return clientRef.current;
   }
- 
-  const cancelLoop = useCallback(() => {
+
+  const cancelTimer = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    if (drainTimeoutRef.current !== null) {
-      clearTimeout(drainTimeoutRef.current);
-      drainTimeoutRef.current = null;
-    }
   }, []);
- 
+
   const play = useCallback(async () => {
-    if (!text) return;
+    if (!text || !TTSClient.isSupported()) return;
     const client = getClient();
- 
+    const spans = computeWordSpans(text);
+    const words = spans.map((s) => s.word);
+    const timings = estimateWordTimings(words, estimatedDuration(text));
+
     setActiveIndex(-1);
-    setDoneIndex(-1);
     setPlaying(true);
-    cancelLoop();
- 
-    const words = text.split(/\s+/).filter(Boolean);
- 
+    cancelTimer();
+    cancelledRef.current = false;
+
+    // Highlighting is driven two ways, with boundary events winning when a
+    // voice provides them:
+    //   • Estimated timer — always runs, so karaoke works even on voices that
+    //     emit no boundary events (e.g. Chrome's network "Google" voices).
+    //   • Real boundary events — when they arrive, they're exact, so we drop
+    //     the estimate and follow them instead.
+    let usingBoundaries = false;
+    let startedAt = 0;
+
+    const runTimer = () => {
+      if (usingBoundaries) return;
+      const elapsed = (performance.now() - startedAt) / 1000;
+      let idx = -1;
+      for (let i = 0; i < timings.length; i++) {
+        if (elapsed >= timings[i].start) idx = i;
+        else break;
+      }
+      if (idx >= 0) setActiveIndex(idx);
+      if (elapsed < (timings[timings.length - 1]?.end ?? 0)) {
+        rafRef.current = requestAnimationFrame(runTimer);
+      }
+    };
+
     try {
-      await client.speak(text, lang, (durationSecs, startedAt) => {
-        const ctx = client.getAudioContext();
-        const timings = estimateWordTimings(words, durationSecs);
-        let lastFired = -1;
- 
-        // Words queued to bounce but not yet rendered. When a slow/janky
-        // frame causes elapsed time to jump past more than one word's
-        // start, every one of those words goes in here instead of only
-        // the last — otherwise React's state batching would only ever
-        // show the final word as active and the rest would silently
-        // skip straight from "upcoming" to "done".
-        let bounceQueue: number[] = [];
-        let draining = false;
- 
-        // Drains the queue one word at a time on a short timer, so each
-        // skipped word still gets its own brief active render and bounce
-        // animation instead of being collapsed into the next one.
-        const MIN_BOUNCE_MS = 60;
-        function drainQueue() {
-          if (draining) return;
-          draining = true;
- 
-          const step = () => {
-            drainTimeoutRef.current = null;
-            const next = bounceQueue.shift();
-            if (next === undefined) {
-              draining = false;
-              return;
-            }
-            setDoneIndex(next - 1);
-            setActiveIndex(next);
-            if (bounceQueue.length > 0) {
-              drainTimeoutRef.current = setTimeout(step, MIN_BOUNCE_MS);
-            } else {
-              draining = false;
-            }
-          };
-          step();
-        }
- 
-        const loop = () => {
-          const elapsed = ctx.currentTime - startedAt;
- 
-          for (let i = 0; i < timings.length; i++) {
-            if (elapsed >= timings[i].start && i > lastFired) {
-              lastFired = i;
-              bounceQueue.push(i);
-            }
-          }
-          if (bounceQueue.length > 0) drainQueue();
- 
-          if (elapsed < (timings[timings.length - 1]?.end ?? 0) + 0.3) {
-            rafRef.current = requestAnimationFrame(loop);
-          }
-        };
-        rafRef.current = requestAnimationFrame(loop);
+      await client.speak(text, lang, {
+        onStart: () => {
+          startedAt = performance.now();
+          if (!usingBoundaries) rafRef.current = requestAnimationFrame(runTimer);
+        },
+        onWord: (charIndex) => {
+          usingBoundaries = true; // exact boundaries available → ditch the estimate
+          cancelTimer();
+          const idx = wordIndexAt(spans, charIndex);
+          if (idx >= 0) setActiveIndex(idx);
+        },
       });
+
+      // Speech finished on its own — learn this engine's real timing so the
+      // next play (and replays of this text) sync better.
+      if (!cancelledRef.current && startedAt > 0) {
+        recordMeasurement(text, (performance.now() - startedAt) / 1000);
+      }
     } finally {
-      cancelLoop();
+      cancelTimer();
       setActiveIndex(-1);
-      setDoneIndex(Infinity); // all words marked done
       setPlaying(false);
       onDone?.();
     }
-  }, [text, lang, onDone, cancelLoop]);
- 
+  }, [text, lang, onDone, cancelTimer]);
+
   const stop = useCallback(() => {
+    cancelledRef.current = true; // don't let an interrupted play skew calibration
     clientRef.current?.stop();
-    cancelLoop();
+    cancelTimer();
     setActiveIndex(-1);
-    setDoneIndex(-1);
     setPlaying(false);
-  }, [cancelLoop]);
- 
+  }, [cancelTimer]);
+
   // Full teardown on unmount only.
   useEffect(() => {
     return () => {
-      cancelLoop();
+      cancelTimer();
       clientRef.current?.close();
       clientRef.current = null;
     };
-  }, [cancelLoop]);
- 
-  return { play, stop, playing, activeIndex, doneIndex };
+  }, [cancelTimer]);
+
+  return { play, stop, playing, activeIndex };
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────

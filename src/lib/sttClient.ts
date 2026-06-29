@@ -7,21 +7,9 @@
 // model files. Supported in Chromium browsers (Chrome / Edge). Firefox has no
 // SpeechRecognition; Safari support is partial.
 
+import { toBCP47 } from "./i18n";
+
 export type SpeechHandler = (text: string, isFinal: boolean) => void;
-
-// App language code → BCP-47 tag understood by SpeechRecognition.
-const LANG_MAP: Record<string, string> = {
-  en: "en-US",
-  de: "de-DE",
-  fr: "fr-FR",
-  es: "es-ES",
-  fa: "fa-IR",
-};
-
-function toBCP47(language: string): string {
-  const base = (language || "en").toLowerCase().split("-")[0];
-  return LANG_MAP[base] ?? language ?? "en-US";
-}
 
 // The constructor is vendor-prefixed in Chromium. No DOM lib types ship for it.
 type SpeechRecognitionLike = any; // eslint-disable-line @typescript-eslint/no-explicit-any
