@@ -1,6 +1,6 @@
 import { t } from "@/lib/i18n";
 import { matchTranscript, pronunciationScore, WordState } from "@/lib/pronunciation";
-import { WhisperStream } from "@/lib/sttClient";
+import { SpeechStream } from "@/lib/sttClient";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useEffect, useRef, useState } from "react";
 import LiveTranscript from "./LiveTranscript";
@@ -16,8 +16,8 @@ type TranscriptionProps = {
 
 const treshold = 0.9;  // how much of the answer must be correct to move to memory phase
 
-export default function Transcription({ activeQuestion, setError, transcriptFinished, stream, triggerRecording }: TranscriptionProps) {
-  const whisperRef = useRef<WhisperStream | null>(null);
+export default function Transcription({ activeQuestion, setError, transcriptFinished, triggerRecording }: TranscriptionProps) {
+  const sttRef = useRef<SpeechStream | null>(null);
 	const transcriptRef = useRef("");
 
 	const {
@@ -33,50 +33,42 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	const [memoryDone, setMemoryDone] = useState(false);
 	const [showHint, setShowHint] = useState(false);
 	const [grading, setGrading] = useState(false);
+	const [recording, setRecording] = useState(false);
 
-	const isConnected = whisperRef.current?.connected() ?? false;
-	let tryCounter = 0
-
+	// Set up the browser Web Speech recognition client. Recreated per question
+	// so the result handler closes over the current question's expected words.
 	useEffect(() => {
-		if(!!stream) {
+		if (!SpeechStream.isSupported()) {
+			setError("Speech recognition isn't supported in this browser — please use Chrome or Edge. Face scoring still works.");
 			return;
 		}
 
-		(async () => {
-			// Whisper streaming (best-effort; works only if WS server running)
-			try {
-				whisperRef.current = new WhisperStream((text, isFinal) => {
-					transcriptRef.current = isFinal
-						? (transcriptRef.current + " " + text).trim()
-						: transcriptRef.current;
-					const display = isFinal ? transcriptRef.current : (transcriptRef.current + " " + text).trim();
-					setTranscript(display);
-					handleTranscript(display);
-				});
-				// await whisperRef.current.start(stream);
-				tryCounter = 0
-			} catch (we) {
-				console.warn("Whisper unavailable", we);
-				if(tryCounter === 1)
-					setError("Whisper WebSocket not connected — start the whisper server (see README). Face scoring still works.");
-
-				tryCounter = tryCounter+1;
-			}
-		})();  // avoid "Async function in useEffect" lint error
+		sttRef.current = new SpeechStream((text, isFinal) => {
+			transcriptRef.current = isFinal
+				? (transcriptRef.current + " " + text).trim()
+				: transcriptRef.current;
+			const display = isFinal ? transcriptRef.current : (transcriptRef.current + " " + text).trim();
+			setTranscript(display);
+			handleTranscript(display);
+		});
 
 		return () => {
-			whisperRef.current?.stop();
+			sttRef.current?.stop();
+			sttRef.current = null;
+			setRecording(false);
 		}
-	}, [stream]);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activeQuestion]);
 
 	function triggerTranscription() {
-		if (whisperRef.current) {
-			triggerRecording();
-			if(isConnected)	{
-				whisperRef.current.stop();
-			} else {
-				whisperRef.current.start(stream!, { language });
-			}
+		if (!sttRef.current) return;
+		triggerRecording();
+		if (recording) {
+			sttRef.current.stop();
+			setRecording(false);
+		} else {
+			sttRef.current.start(null, { language });
+			setRecording(true);
 		}
 	}
 
@@ -113,8 +105,10 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 
 	// ---- Finish & grade ----
   async function onFinished() {
-		if(isConnected) {
+		if(recording) {
 			triggerRecording();
+			sttRef.current?.stop();
+			setRecording(false);
 		}
 
     setGrading(true);
@@ -154,10 +148,10 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 							</button>
 						)}
 						
-						{isConnected && !memoryDone &&
+						{recording && !memoryDone &&
 							<button onClick={triggerTranscription}
 											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
-								{isConnected ? t(language, "stopRecording") : t(language, "startRecording")}
+								{recording ? t(language, "stopRecording") : t(language, "startRecording")}
 							</button>
 						}
 					</div>
@@ -181,7 +175,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 					</div>
 				)}
 
-				{!isConnected && !memoryDone &&
+				{!recording && !memoryDone &&
 					<button onClick={triggerTranscription}
 									className="rounded-lg bg-emerald-600 px-3 py-4 mt-4 text-xs hover:bg-emerald-500 w-full">
 								{t(language, "startRecording")}
@@ -189,7 +183,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 				}
 			</div>
 
-			<LiveTranscript text={transcript.slice(-500)} isStop={!isConnected} />
+			<LiveTranscript text={transcript.slice(-500)} isStop={!recording} />
 
 			<div className="flex gap-3">
 				{memoryDone ? (

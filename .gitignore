@@ -12,3 +12,4 @@ whisper.cpp
 package-lock.json
 yarn.lock
 piper-voices
+*.tsbuildinfo
