@@ -50,7 +50,7 @@ function loadVoices(): Promise<SpeechSynthesisVoice[]> {
 // "Microsoft Aria"/"Google US English" on Windows/Chrome). List a few
 // candidates per language so a match is likely on whatever machine runs it.
 export const VOICE_PREFERENCES: Record<string, string[]> = {
-  en: ["Nathan", "Zoe", "Evan", "Google US English", "Microsoft Aria", "Samantha", "Daniel"],
+  en: ["Evan", "Nathan", "Zoe", "Google US English", "Microsoft Aria", "Samantha", "Daniel"],
   de: ["Google Deutsch", "Microsoft Katja", "Anna"],
   fr: ["Google français", "Microsoft Denise", "Amelie", "Thomas"],
   es: ["Google español", "Microsoft Elvira", "Monica", "Jorge"],
