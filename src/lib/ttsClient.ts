@@ -120,7 +120,7 @@ export class TTSClient {
       const u = new SpeechSynthesisUtterance(text);
       u.lang = locale;
       if (voice) u.voice = voice;
-      u.rate = 0.9;
+      u.rate = 0.8;
       u.pitch = 1;
 
       u.onstart = () => handlers.onStart?.();
