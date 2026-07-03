@@ -76,6 +76,11 @@ Notes:
 ### Flow
 1. **Onboarding** → upload PDF resume (parsed via `pdf-parse`), pick language/mode/seniority
    → OpenRouter generates **10 Q&A pairs**.
+   - **Preferred Q&A (optional):** below the General/Workspace selector you can add up to **10 of
+     your own question/answer pairs** (answers optional). The AI rewrites them into the practice
+     language at your CEFR level (General) or seniority/mode register (Workspace), writes missing
+     answers, and generates related questions to fill the session up to 10. Each tab (General /
+     Workspace) keeps its own persisted list and settings across reloads.
 2. **Study** → read each ideal answer, optionally click the **Volume Icon** to hear it spoken
    (browser `speechSynthesis`), with each word highlighted in sync as it's spoken
    → click *"I'm ready"*.
@@ -132,6 +137,7 @@ Notes:
 | Concern | File |
 |---|---|
 | Onboarding UI | `src/app/page.tsx` |
+| Preferred Q&A editor | `src/components/PreferredQA.tsx` |
 | Study | `src/app/study/page.tsx` |
 | Practice (camera/STT/FaceMesh) | `src/app/practice/[slug]/page.tsx` |
 | Results + replay + confetti | `src/app/results/page.tsx` |
@@ -205,6 +211,8 @@ language processing. Be aware of what leaves the user's device:
   on the chosen voice, this may use an on-device or a network voice.
 - **Resume + answer text:** sent to **OpenRouter** (and the selected model provider) for question
   generation and grammar grading.
+- **Preferred Q&A:** user-entered questions/answers are stored in browser `localStorage` (Zustand
+  persist) and sent to **OpenRouter** when generating a session.
 - **Video (webcam frames):** processed **locally** by MediaPipe and never transmitted.
 - **Session recordings:** stored as in-memory object URLs in the browser and cleared on page reload.
 - **No first-party analytics, telemetry, or tracking** is included in this codebase.

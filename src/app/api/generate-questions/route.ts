@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const { resumeText, mode, seniority, language, convType, langLevel, situation } = await req.json();
+  const { resumeText, mode, seniority, language, convType, langLevel, situation, preferredQA } = await req.json();
   const level = LANG_LEVEL[langLevel] || "C1";
   const langName = LANG_NAME[language] || "English";
   const genSituation = situation || 'in a random place or random situation'
@@ -16,6 +16,27 @@ export async function POST(req: NextRequest) {
     mode === "interview"
       ? "a job interview"
       : "professional workplace communication scenarios";
+
+  // User's preferred Q&A pairs (max 10, question required)
+  const userQAs: { question: string; answer?: string }[] = (Array.isArray(preferredQA) ? preferredQA : [])
+    .filter((x: { question?: string }) => typeof x?.question === "string" && x.question.trim().length > 0)
+    .slice(0, 10);
+  const remaining = 10 - userQAs.length;
+
+  const preferredBlock = (targetDesc: string) =>
+    userQAs.length === 0
+      ? ""
+      : `
+The learner provided ${userQAs.length} PREFERRED question/answer pairs (may be in any language):
+${userQAs.map((x, i) => `${i + 1}. Q: ${x.question}\n   A: ${x.answer?.trim() || "(no answer provided — write an ideal one)"}`).join("\n")}
+
+Rules for the preferred pairs:
+* Keep the meaning and intent of each question and answer.
+* Rewrite BOTH the question and the answer into natural ${langName}, ${targetDesc}.
+* If an answer is missing, write an ideal answer yourself.
+* The preferred pairs must appear FIRST, with ids 1 to ${userQAs.length}.
+${remaining > 0 ? `* Then generate ${remaining} ADDITIONAL related questions (ids ${userQAs.length + 1} to 10) on the same theme so the total is exactly 10.` : "* Do not add any extra questions beyond these 10."}
+`;
 
   let prompt = `You are an expert ${langName} language coach and interviewer.
 Based on this candidate resume, create exactly 10 questions for ${modeDesc} at a ${seniority}-level role.
@@ -25,6 +46,8 @@ RESUME:
 """
 ${resumeText || "No resume provided. Use general professional background."}
 """
+
+${preferredBlock(`appropriate for a ${seniority}-level candidate in ${modeDesc}`)}
 
 All text must be in ${langName}.
 
@@ -48,6 +71,8 @@ For EACH question:
 * Keep answers realistic and conversational.
 * Avoid technical, academic, or job-specific topics unless they are appropriate for ${level}.
 * Assume user is ${genSituation} and questions and answers must be releated to this situation.
+
+${preferredBlock(`matching the vocabulary, grammar, sentence complexity, and fluency expected at ${level} (CEFR)`)}
 
 Level guidelines:
 * A1: very simple sentences, basic vocabulary.

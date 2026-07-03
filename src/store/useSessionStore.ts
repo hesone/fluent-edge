@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Lang, LangLevel } from "@/lib/i18n";
-import { BsQuestionSquare } from "react-icons/bs";
 
 export type Converstion = "general" | "workspace";
 export type Mode = "interview" | "professional";
@@ -12,6 +11,14 @@ export interface QA {
   question: string;
   idealAnswer: string;
 }
+
+export interface PreferredQA {
+  id: number;
+  question: string;
+  answer: string;
+}
+
+export const MAX_PREFERRED_QA = 10;
 
 export interface QuestionResult {
   faceScore: number;       // 0-100
@@ -36,8 +43,13 @@ interface SessionState {
   seniority: Seniority;
   questions: QA[];
   results: Record<number, QuestionResult>;
+  // Preferred Q&A kept separately per conversation tab
+  preferredQA: Record<Converstion, PreferredQA[]>;
 
   setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "topic" | "seniority" | "convType" | "langLevel" | "situation">>) => void;
+  addPreferredQA: (tab: Converstion, question: string, answer: string) => void;
+  updatePreferredQA: (tab: Converstion, id: number, d: Partial<Pick<PreferredQA, "question" | "answer">>) => void;
+  removePreferredQA: (tab: Converstion, id: number) => void;
   setQuestions: (q: QA[]) => void;
   setAnswerForQuestion: (qId: number, a: string) => void;
   saveResult: (id: number, r: Partial<QuestionResult>) => void;
@@ -62,8 +74,33 @@ export const useSessionStore = create<SessionState>()(
       situation: "",
       questions: [],
       results: {},
+      preferredQA: { general: [], workspace: [] },
 
       setOnboarding: (d) => set(d),
+      addPreferredQA: (tab, question, answer) => {
+        const list = get().preferredQA[tab];
+        if (list.length >= MAX_PREFERRED_QA) return;
+        const nextId = list.length ? Math.max(...list.map((x) => x.id)) + 1 : 1;
+        set({
+          preferredQA: { ...get().preferredQA, [tab]: [...list, { id: nextId, question, answer }] },
+        });
+      },
+      updatePreferredQA: (tab, id, d) => {
+        set({
+          preferredQA: {
+            ...get().preferredQA,
+            [tab]: get().preferredQA[tab].map((x) => (x.id === id ? { ...x, ...d } : x)),
+          },
+        });
+      },
+      removePreferredQA: (tab, id) => {
+        set({
+          preferredQA: {
+            ...get().preferredQA,
+            [tab]: get().preferredQA[tab].filter((x) => x.id !== id),
+          },
+        });
+      },
       setQuestions: (questions) =>
         set({
           questions,
@@ -92,7 +129,9 @@ export const useSessionStore = create<SessionState>()(
       // videoUrl object URLs aren't serializable across reloads; that's acceptable.
       partialize: (s) => ({
         resumeText: s.resumeText, language: s.language, mode: s.mode,
-        seniority: s.seniority, questions: s.questions, results: s.results
+        seniority: s.seniority, questions: s.questions, results: s.results,
+        convType: s.convType, langLevel: s.langLevel, situation: s.situation,
+        topic: s.topic, preferredQA: s.preferredQA,
       }),
     }
   )

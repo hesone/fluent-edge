@@ -3,19 +3,25 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStore, Mode, Seniority, Converstion } from "@/store/useSessionStore";
 import { LANGS, LANG_LEVEL, Lang, LangLevel, isRTL, t } from "@/lib/i18n";
+import PreferredQA from "@/components/PreferredQA";
 
 export default function Onboarding() {
   const router = useRouter();
-  const { setOnboarding, setQuestions } = useSessionStore();
+  const {
+    setOnboarding, setQuestions, preferredQA,
+    resumeText, language, convType, mode, seniority, langLevel, situation,
+  } = useSessionStore();
 
-  const [resumeText, setResumeText] = useState("");
+  // Every setting writes straight to the persisted store so each tab keeps its state
+  const setResumeText = (resumeText: string) => setOnboarding({ resumeText });
+  const setLanguage = (language: Lang) => setOnboarding({ language });
+  const setConvType = (convType: Converstion) => setOnboarding({ convType });
+  const setMode = (mode: Mode) => setOnboarding({ mode });
+  const setSeniority = (seniority: Seniority) => setOnboarding({ seniority });
+  const setLangLevel = (langLevel: LangLevel) => setOnboarding({ langLevel });
+  const setSituation = (situation: string) => setOnboarding({ situation });
+
   const [fileName, setFileName] = useState("");
-  const [language, setLanguage] = useState<Lang>("en");
-  const [convType, setConvType] = useState<Converstion>("workspace");
-  const [mode, setMode] = useState<Mode>("interview");
-  const [seniority, setSeniority] = useState<Seniority>("mid");
-  const [langLevel, setLangLevel] = useState<LangLevel>("c1");
-  const [situation, setSituation] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
@@ -49,7 +55,10 @@ export default function Onboarding() {
       const res = await fetch("/api/generate-questions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ convType, langLevel, resumeText, mode, seniority, language, situation }),
+        body: JSON.stringify({
+          convType, langLevel, resumeText, mode, seniority, language, situation,
+          preferredQA: preferredQA[convType] ?? [],
+        }),
       });
       const data = await res.json();
       if (!data.questions?.length) throw new Error(data.detail || "no questions");
@@ -90,6 +99,9 @@ export default function Onboarding() {
               ))}
             </div>
           </section>
+
+          {/* Preferred Q&A — persisted separately for each tab */}
+          <PreferredQA tab={convType} language={language} />
 
           {/* Language */}
           <section>

@@ -45,7 +45,7 @@ const dict = {
     interview: "Interview Practice",
     professional: "Professional Communication",
     junior: "Junior", mid: "Mid", senior: "Senior",
-    generate: "Generate My Questions",
+    generate: "Start My Practice Session",
     generating: "Building your personalized session…",
     readyToPractice: "I'm ready to practice this",
     questionOf: "Question {n} of {total}",
@@ -73,6 +73,14 @@ const dict = {
     chooseLangLevel: "Language level",
     situation: "Situation",
     situationPlaceholder: "Describe a situation you want to be there.",
+    preferredQA: "Preferred Q&A",
+    preferredQAHint: "Add up to {max} of your own questions and answers. AI adapts them to your language and level, and fills in the rest.",
+    yourQuestion: "Your question",
+    yourAnswer: "Your answer (optional — AI writes one if empty)",
+    addQA: "Add Q&A",
+    removeQA: "Remove",
+    maxQAReached: "Maximum of {max} questions reached.",
+    qaCount: "{n} / {max} added",
   },
 } as const;
 
