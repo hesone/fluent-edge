@@ -66,7 +66,7 @@ export default function Onboarding() {
       setQuestions(data.questions);
       router.push("/study");
     } catch (e) {
-      setError("Failed to generate questions. Is Ollama running? " + String(e));
+      setError("Failed to generate questions. Is AI Model running? " + String(e));
       setLoading(false);
     }
   }

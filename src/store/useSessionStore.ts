@@ -22,7 +22,7 @@ export const MAX_PREFERRED_QA = 10;
 
 export interface QuestionResult {
   faceScore: number;       // 0-100
-  grammarScore: number;    // 0-100 (from Ollama)
+  grammarScore: number;    // 0-100 (from AI grammar check)
   pronunciationScore: number;
   combinedScore: number;
   feedback: string;
