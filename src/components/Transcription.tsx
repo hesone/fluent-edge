@@ -25,7 +25,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	} = useSessionStore();
 
 	const q = questions[activeQuestion];
-	const words = q ? q.idealAnswer.replace(/[-‑,!?;:"()\/\[\]{}]/g, " ").split(/\s+/).filter(Boolean) : [];
+	const words = q ? q.idealAnswer.replace(/[,!?;:"()\/\[\]{}]/g, " ").split(/\s+/).filter(Boolean) : [];
 
 	const [transcript, setTranscript] = useState("");
 	const [states, setStates] = useState<WordState[]>(words.map(() => "pending"));
