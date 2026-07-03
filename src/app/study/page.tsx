@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/store/useSessionStore";
 import { isRTL, t } from "@/lib/i18n";
 import Stepper from "@/components/Stepper";
-import { LuRefreshCcw, LuVolume2, LuVolumeOff } from "react-icons/lu";
+import { LuPencil, LuRefreshCcw, LuVolume2, LuVolumeOff } from "react-icons/lu";
 import TTSSentence, { ChildHandle } from "@/components/TTSSentences";
 
 export default function Study() {
@@ -13,6 +13,8 @@ export default function Study() {
   const [answer, setAnswer] = useState('');
   const [loading, setLoading] = useState<boolean>(false);
   const [playing, setPlaying] = useState<boolean>(false)
+  const [editing, setEditing] = useState<boolean>(false);
+  const [draft, setDraft] = useState('');
   const [idx, setIdx] = useState(0);
   const ttsRef = useRef<ChildHandle>(null)
   const rtl = isRTL(language);
@@ -55,10 +57,27 @@ export default function Study() {
     setLoading(false);
   };
   
+  function startEditing() {
+    if (playing) toggleReading();
+    setDraft(q.idealAnswer);
+    setEditing(true);
+  }
+
+  function saveEdit() {
+    setAnswerForQuestion(q.id, draft.trim());
+    setEditing(false);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setDraft(q.idealAnswer);
+  }
+
   function proceed(qIdx?: number) {
     if(playing){
       toggleReading()
     }
+    setEditing(false)
     ttsRef.current?.stopReading()
     if (typeof qIdx === 'number') {
       setIdx(qIdx)
@@ -99,21 +118,44 @@ export default function Study() {
               </div>
               <div className="flex gap-2">
                 {!loading &&
-                  <button className="p-2 rounded border border-slate-800 bg-slate-900/50 text-md" onClick={toggleReading}>
+                  <button disabled={editing} className="p-2 rounded border border-slate-800 bg-slate-900/50 text-md disabled:opacity-40" onClick={toggleReading}>
                     {!playing ? <LuVolume2 /> : <LuVolumeOff />}
                   </button>
                 }
-                <button disabled={loading} className="p-2 rounded border border-slate-800 bg-slate-900/50 text-sm" onClick={ask}>
+                <button disabled={loading || editing} title={t(language, "editAnswer")} className="p-2 rounded border border-slate-800 bg-slate-900/50 text-sm disabled:opacity-40" onClick={startEditing}>
+                  <LuPencil />
+                </button>
+                <button disabled={loading || editing} className="p-2 rounded border border-slate-800 bg-slate-900/50 text-sm disabled:opacity-40" onClick={ask}>
                   <LuRefreshCcw className={loading ? "animate-spin" : ""} />
                 </button>
               </div>
             </div>
-            {!answer ?
-              (loading ? 
-                new Array(20).fill(0).map((_, idx) => <span key={idx} style={{ width: `${Math.random() * (100 - 50) + 50}px` }} className="inline-block h-5 rounded bg-brand-500/20 animate-pulse mr-2 mb-1" /> ) :
-                <TTSSentence ref={ttsRef} text={q.idealAnswer} lang={language} onDone={() => setPlaying(false)} />
-              ) :
-              <p className="text-lg leading-relaxed text-slate-200">{answer}</p>
+            {editing ?
+              <div>
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={8}
+                  autoFocus
+                  className="w-full rounded-xl border border-emerald-500/30 bg-slate-900/60 p-4 text-lg leading-relaxed text-slate-200 outline-none focus:border-emerald-500/60"
+                />
+                <div className="mt-3 flex gap-2">
+                  <button onClick={saveEdit} disabled={!draft.trim()}
+                    className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-semibold transition hover:brightness-110 disabled:opacity-40">
+                    {t(language, "saveAnswer")}
+                  </button>
+                  <button onClick={cancelEdit}
+                    className="rounded-xl border border-slate-700 bg-slate-900/50 px-5 py-2 text-sm font-semibold transition hover:bg-slate-800">
+                    {t(language, "cancel")}
+                  </button>
+                </div>
+              </div> :
+              !answer ?
+                (loading ?
+                  new Array(20).fill(0).map((_, idx) => <span key={idx} style={{ width: `${Math.random() * (100 - 50) + 50}px` }} className="inline-block h-5 rounded bg-brand-500/20 animate-pulse mr-2 mb-1" /> ) :
+                  <TTSSentence ref={ttsRef} text={q.idealAnswer} lang={language} onDone={() => setPlaying(false)} />
+                ) :
+                <p className="text-lg leading-relaxed text-slate-200">{answer}</p>
             }
           </div>
 

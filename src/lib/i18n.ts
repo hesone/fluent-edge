@@ -81,6 +81,9 @@ const dict = {
     removeQA: "Remove",
     maxQAReached: "Maximum of {max} questions reached.",
     qaCount: "{n} / {max} added",
+    editAnswer: "Edit answer",
+    saveAnswer: "Save answer",
+    cancel: "Cancel",
   },
 } as const;
 
