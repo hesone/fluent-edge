@@ -110,10 +110,14 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 			sttRef.current?.stop();
 			setRecording(false);
 		}
+		
+		if(!transcriptRef?.current && !transcript) {
+			transcriptFinished({ transcript: transcriptRef.current || transcript, pronScore: 0, grammarScore: 0, feedback: "You Skip this question", seniority_match: 'Unknown' });
+			return;
+		}
 
     setGrading(true);
     const pron = pronunciationScore(states.length ? states : words.map(() => "correct"));
-    // grammar via Ollama
     let grammarScore = pron, feedback = "", seniority_match = seniority;
     try {
       const res = await fetch("/api/grade", {
