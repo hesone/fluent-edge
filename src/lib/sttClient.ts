@@ -28,6 +28,7 @@ export class SpeechStream {
   private onResult: SpeechHandler;
   private running = false;
   private manualStop = false;
+  private discarding = false;
   private language = "en-US";
 
   constructor(onResult: SpeechHandler) {
@@ -60,6 +61,7 @@ export class SpeechStream {
     rec.maxAlternatives = 1;
 
     rec.onresult = (event: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (this.discarding) return; // reset() pending — drop stale utterance
       let interim = "";
       let final = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -84,6 +86,7 @@ export class SpeechStream {
       // Chrome ends the session after a stretch of silence. Restart it
       // automatically unless the caller explicitly asked to stop.
       if (this.running && !this.manualStop) {
+        this.discarding = false; // fresh session — accept results again
         try {
           rec.start();
         } catch {
@@ -102,6 +105,22 @@ export class SpeechStream {
 
   connected() {
     return this.running;
+  }
+
+  /**
+   * Discard the in-flight utterance and continue with a fresh session.
+   * Without this, the next `onresult` after a caller-side transcript reset
+   * re-delivers the whole current utterance (interim text accumulates until
+   * finalized), repopulating the UI with stale speech.
+   */
+  reset() {
+    if (!this.recognition || !this.running) return;
+    this.discarding = true; // guard against results firing before abort lands
+    try {
+      this.recognition.abort(); // fires onend → auto-restart clears the flag
+    } catch {
+      this.discarding = false;
+    }
   }
 
   stop() {

@@ -73,6 +73,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	}
 
 	function resetTranscript() {
+		sttRef.current?.reset(); // drop the in-flight utterance so stale speech can't repopulate
 		transcriptRef.current = "";
 		setTranscript("");
 		setStates(words.map(() => "pending"));
