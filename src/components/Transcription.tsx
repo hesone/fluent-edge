@@ -1,4 +1,4 @@
-import { t } from "@/lib/i18n";
+import { t, LangLevel } from "@/lib/i18n";
 import { matchTranscript, pronunciationScore, WordState } from "@/lib/pronunciation";
 import { SpeechStream } from "@/lib/sttClient";
 import { useSessionStore } from "@/store/useSessionStore";
@@ -14,14 +14,31 @@ type TranscriptionProps = {
 	triggerRecording: () => void;
 };
 
-const treshold = 0.9;  // how much of the answer must be correct to move to memory phase
+// How much of the answer must be correct to move to memory phase, per CEFR
+// level: easier levels demand a perfect read, harder levels allow more slack.
+const LEVEL_THRESHOLD: Record<LangLevel, number> = {
+	a1: 1.0,
+	a2: 0.98,
+	b1: 0.96,
+	b2: 0.94,
+	c1: 0.92,
+	c2: 0.9,
+};
+const MIN_THRESHOLD = 0.9;
+
+// Long answers (>25 words) lower the threshold by 1% per extra word, never below 90%.
+function getThreshold(level: LangLevel, wordCount: number): number {
+	const base = LEVEL_THRESHOLD[level] ?? MIN_THRESHOLD;
+	if (wordCount <= 25) return base;
+	return Math.max(MIN_THRESHOLD, base - (wordCount - 25) * 0.01);
+}
 
 export default function Transcription({ activeQuestion, setError, transcriptFinished, triggerRecording }: TranscriptionProps) {
   const sttRef = useRef<SpeechStream | null>(null);
 	const transcriptRef = useRef("");
 
 	const {
-		questions, language, seniority,
+		questions, language, seniority, langLevel,
 	} = useSessionStore();
 
 	const q = questions[activeQuestion];
@@ -80,6 +97,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	}
 
 	useEffect(() => {
+		const treshold = getThreshold(langLevel, words.length);
 		const everyGreen = states.length > 0 && states.filter((s) => s === "correct").length / states.length >= treshold;
 		const everyReaded = states.length > 0 && states.every(s => s !== "pending")
 		if(everyReaded) {

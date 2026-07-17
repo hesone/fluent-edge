@@ -13,3 +13,4 @@ yarn.lock
 piper-voices
 *.tsbuildinfo
 .env.local
+pronunciation-studio
