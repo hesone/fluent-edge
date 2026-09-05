@@ -5,12 +5,12 @@ build/
 *.log
 .idea/
 .vscode/
-coverage/
+*.tsbuildinfo
 whisper.cpp
 .next
 package-lock.json
 yarn.lock
 piper-voices
-*.tsbuildinfo
+.env
 .env.local
 pronunciation-studio

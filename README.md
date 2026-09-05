@@ -1,49 +1,99 @@
 # FluentEdge — AI Language Practice App
 
 Practice **general communication**, **interview** & **professional communication** in English, German,
-French, Spanish, or Farsi (RTL). Speech recognition and synthesis run **in the browser**, and the LLM
-runs on **OpenRouter** — so there's nothing heavy to install and the whole app deploys as a single
-Next.js service.
+French, Spanish, or Farsi (RTL).
 
-- **LLM:** OpenRouter via the Vercel AI SDK — question generation + grammar grading
-- **STT:** Web Speech API (`SpeechRecognition`) — real-time, in-browser
-- **TTS:** Web Speech API (`speechSynthesis`) — reads answers aloud with word-by-word highlighting
-- **Face/Emotion:** MediaPipe FaceLandmarker — confidence, nervousness, engagement, eye contact
-- **State:** Zustand (persisted)
+FluentEdge runs in **two modes from one codebase**, chosen by configuration:
 
-> **Browser support:** the speech features use the Web Speech API, which is reliable in
-> **Chrome and Edge**. Firefox has no speech recognition; Safari support is partial. Use a
-> Chromium browser for the full experience.
+| | **online** (default) | **local** |
+|---|---|---|
+| **LLM** | OpenRouter via the Vercel AI SDK | Ollama on your machine |
+| **STT** | Web Speech API (`SpeechRecognition`) | whisper.cpp, streamed to the bundled media server |
+| **TTS** | Web Speech API (`speechSynthesis`) | Piper voices, via the same media server |
+| **Needs** | an API key + internet | whisper.cpp, Piper and Ollama installed |
+| **Deploys as** | a single Next.js service | runs entirely offline on your own hardware |
+
+Everything else is shared: **Face/Emotion** via MediaPipe FaceLandmarker (confidence, nervousness,
+engagement, eye contact) and persisted **Zustand** state.
+
+The three axes are independent — you can run the LLM locally on Ollama while still using browser
+speech, or the reverse. See [§2 Configure environment](#2-configure-environment).
+
+> **Browser support:** in online mode the speech features use the Web Speech API, which is reliable
+> in **Chrome and Edge**. Firefox has no speech recognition; Safari support is partial. Local mode
+> streams audio over a WebSocket instead and works in any modern browser.
 
 ---
 
 ## 1. Prerequisites
+
+Always:
 - Node.js ≥ 20
-- A Chromium browser (Chrome / Edge) with a webcam + microphone
+- A browser with a webcam + microphone
+
+For **online** mode:
+- A Chromium browser (Chrome / Edge) — for the Web Speech API
 - An **OpenRouter API key** — free to create at <https://openrouter.ai/keys>
+
+For **local** mode:
+- [**Ollama**](https://ollama.com) running, with a model pulled: `ollama pull llama3.2`
+- [**whisper.cpp**](https://github.com/ggerganov/whisper.cpp) built, with a model downloaded
+- [**Piper**](https://github.com/rhasspy/piper) on your `PATH`, with a voice per language you use
+  (defaults are the `-medium` voices — see `media-server/tts-engine.js`)
 
 ---
 
 ## 2. Configure environment
 
-Create `.env.local` in the project root:
+Copy `.env.example` to `.env.local` and fill in what your mode needs. `.env.local` is gitignored —
+never commit your key.
+
+**Online (default)** — nothing to install:
 
 ```
-# OpenRouter (LLM provider) — get a key at https://openrouter.ai/keys
+NEXT_PUBLIC_APP_MODE=online
 OPENROUTER_API_KEY=sk-or-...
-# Optional: any model id from https://openrouter.ai/models (defaults to a free model)
 OPENROUTER_MODEL=openai/gpt-oss-120b:free
 ```
 
-`.env.local` is gitignored — never commit your key.
+**Local** — fully offline:
 
-> **Free models** have per-day rate limits and vary in how reliably they return strict JSON.
-> If question generation or grading fails intermittently, switch `OPENROUTER_MODEL` to a more
-> capable (or paid) model.
+```
+NEXT_PUBLIC_APP_MODE=local
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2:latest
+NEXT_PUBLIC_MEDIA_WS_URL=ws://localhost:9090
+```
+
+### Mixing modes
+
+`NEXT_PUBLIC_APP_MODE` is only the default. Each axis can be overridden on its own, and `auto`
+probes the local endpoint at startup and falls back to the online provider if it isn't answering:
+
+| Variable | Values | Axis |
+|---|---|---|
+| `NEXT_PUBLIC_STT_PROVIDER` | `web` \| `whisper` \| `auto` | speech recognition |
+| `NEXT_PUBLIC_TTS_PROVIDER` | `web` \| `piper` \| `auto` | speech synthesis |
+| `LLM_PROVIDER` | `openrouter` \| `ollama` \| `auto` | question gen + grading |
+
+Leave one empty to follow `NEXT_PUBLIC_APP_MODE`. So a local LLM with browser speech is just
+`LLM_PROVIDER=ollama` on top of the online defaults.
+
+Resolution happens in `src/lib/config.ts` (client-visible axes) and `src/lib/config.server.ts`
+(the LLM, kept server-side so no host or key path reaches the browser bundle). The media-server
+probe runs **once per page load** and is memoised, so `auto` costs one WebSocket open, not one
+per component.
+
+> **Free OpenRouter models** have per-day rate limits and vary in how reliably they return strict
+> JSON. If question generation or grading fails intermittently, switch `OPENROUTER_MODEL` to a more
+> capable (or paid) model. Ollama gets an explicit `format: "json"` nudge for the same reason.
 
 ---
 
 ## 3. Run the web app
+
+**Online mode** — one process:
+
 ```bash
 npm install
 npm run dev
@@ -51,6 +101,17 @@ npm run dev
 ```
 
 That's it — no separate speech server, no model downloads, no local LLM runtime.
+
+**Local mode** — two processes, plus Ollama:
+
+```bash
+npm install
+npm run media     # whisper.cpp STT + Piper TTS over ws://localhost:9090
+npm run dev       # in a second terminal
+```
+
+The media server serves both speech axes over one WebSocket. If it isn't running, the app says so
+in the practice screen rather than failing silently.
 
 ---
 
@@ -98,34 +159,54 @@ Notes:
 
 ### Speech details
 - **Languages** map to unique BCP-47 codes in one place (`LOCALE` in `src/lib/i18n.ts`):
-  `en-US`, `de-DE`, `fr-FR`, `es-ES`, `fa-IR` — shared by both STT and TTS.
-- **Voice selection (TTS):** `VOICE_PREFERENCES` in `src/lib/ttsClient.ts` lists preferred voice
-  names per language. To see what your machine offers, run in the browser console:
+  `en-US`, `de-DE`, `fr-FR`, `es-ES`, `fa-IR`. The Web Speech adapters use these; the whisper.cpp
+  adapter deliberately passes the plain ISO-639-1 code instead, which is what whisper expects.
+- **Voice selection (online TTS):** `VOICE_PREFERENCES` in `src/lib/tts/webSpeech.ts` lists
+  preferred voice names per language. To see what your machine offers, run in the browser console:
   `speechSynthesis.getVoices().forEach(v => console.log(v.name, v.lang, v.localService))`,
   then put the name you want first.
-- **Word highlighting** is driven by real `onboundary` events when a voice provides them
-  (exact sync). Voices that don't emit boundaries (e.g. Chrome's network voices) fall back to a
-  self-calibrating time estimate that tightens up after the first utterance and is near-exact on
-  replay of the same text.
+- **Voice selection (local TTS):** `PIPER_VOICE_MAP` in `media-server/tts-engine.js`, overridable
+  per language with `PIPER_VOICE_EN`, `PIPER_VOICE_FA`, … If you switch to `-low` / `-x_low`
+  voices, update `TTS_SAMPLE_RATE` in that file to `16000` to match — the server announces the rate
+  to the client in the `tts_audio` header, so the two never have to guess at each other.
+- **Word highlighting** uses the best signal each engine offers, in this order:
+  1. **Real boundary events** (`onboundary`) — exact; most desktop Web Speech voices emit these.
+  2. **A known duration + the audio clock** — exact; Piper hands back a finished PCM buffer, so
+     playback is interpolated against the very `AudioContext` clock it was scheduled on.
+  3. **A self-calibrating estimate** — for voices that report neither (e.g. Chrome's network
+     voices). It tightens after the first utterance and is near-exact on replay of the same text.
+
+  Words skipped by a slow frame are queued and flashed one at a time rather than collapsed into
+  their successor, so the bounce animation never silently drops a word.
 
 ### Scoring
 - **Face confidence** (`src/lib/faceScoring.ts`): eye-contact (iris centering),
   eyebrow raise (engagement), mouth tension, head stability — EMA-smoothed, averaged over the session.
 - **Pronunciation** (`src/lib/pronunciation.ts`): sequential Levenshtein word matching of the
   recognized transcript vs expected words.
-- **Grammar** (`/api/grade`): OpenRouter returns `{ score, feedback, seniority_match }`.
+- **Grammar** (`/api/grade`): the configured LLM (OpenRouter or Ollama) returns
+  `{ score, feedback, seniority_match }`.
 - **Combined** = average(face, grammar).
 
 ---
 
 ## 6. Notes & troubleshooting
-- **No transcript / "speech recognition not supported"?** Use Chrome or Edge — Firefox has no
-  `SpeechRecognition`. Face scoring still works in any browser.
-- **No speech on "Volume Icon"?** Your device may not have a voice installed for the selected
-  language (notably Farsi). Check available voices with the console snippet above and set a
-  preferred voice in `src/lib/ttsClient.ts`.
-- **Questions/grading fail?** Confirm `OPENROUTER_API_KEY` is set, and that the chosen
-  `OPENROUTER_MODEL` is available and not rate-limited. Free models can throttle.
+- **No transcript / "speech recognition not supported"?** In online mode, use Chrome or Edge —
+  Firefox has no `SpeechRecognition`. Face scoring still works in any browser.
+- **"Can't reach the local media server"?** In local mode, start it with `npm run media` and check
+  `NEXT_PUBLIC_MEDIA_WS_URL`. The badge above the answer reads **local** or **online** so you can
+  see which provider actually resolved.
+- **No speech on "Volume Icon"?** Online: your device may not have a voice installed for the
+  selected language (notably Farsi) — check available voices with the console snippet above and set
+  a preferred voice in `src/lib/tts/webSpeech.ts`. Local: check that the Piper voice file for that
+  language exists in `PIPER_VOICES_DIR`.
+- **Local speech sounds fast and high-pitched?** The Piper voice's sample rate doesn't match
+  `TTS_SAMPLE_RATE` in `media-server/tts-engine.js` — `-medium` voices are 22050 Hz, `-low` and
+  `-x_low` are 16000 Hz.
+- **Questions/grading fail?** Online: confirm `OPENROUTER_API_KEY` is set and the chosen
+  `OPENROUTER_MODEL` is available and not rate-limited — free models throttle. Local: confirm
+  `ollama serve` is running and `OLLAMA_MODEL` has been pulled. The error message names whichever
+  backend it was actually talking to.
 - **HTTPS for camera:** `localhost` is treated as secure in dev; in production you need HTTPS
   (Render provides it automatically).
 - **RTL:** selecting **فارسی** sets `dir="rtl"` across all screens and mirrors layout.
@@ -145,11 +226,16 @@ Notes:
 | Question gen | `src/app/api/generate-questions/route.ts` |
 | Answer gen | `src/app/api/generate-answer/route.ts` |
 | Grammar grade | `src/app/api/grade/route.ts` |
-| LLM provider (OpenRouter) | `src/lib/llm.ts` |
+| Mode config (client axes) | `src/lib/config.ts` |
+| Mode config (LLM, server-only) | `src/lib/config.server.ts` |
+| LLM provider (OpenRouter / Ollama) | `src/lib/llm.ts` |
 | Face scoring | `src/lib/faceScoring.ts` |
 | Pronunciation matching | `src/lib/pronunciation.ts` |
-| Speech recognition client (STT) | `src/lib/sttClient.ts` |
-| Speech synthesis client (TTS) | `src/lib/ttsClient.ts` |
+| STT contract + factory | `src/lib/stt/types.ts`, `src/lib/stt/index.ts` |
+| STT — online / local | `src/lib/stt/webSpeech.ts`, `src/lib/stt/whisper.ts` |
+| TTS contract + factory | `src/lib/tts/types.ts`, `src/lib/tts/index.ts` |
+| TTS — online / local | `src/lib/tts/webSpeech.ts`, `src/lib/tts/piper.ts` |
+| Local media server (STT + TTS) | `media-server/server.js` |
 | Locale / i18n | `src/lib/i18n.ts` |
 | State | `src/store/useSessionStore.ts` |
 

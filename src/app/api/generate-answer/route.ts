@@ -1,6 +1,6 @@
 import { Mode } from "@/store/useSessionStore";
 import { streamText } from "ai";
-import { llm } from "@/lib/llm";
+import { getLLM, llmLabel } from "@/lib/llm";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -51,9 +51,11 @@ Return a text as an answer.
 `
 
   try {
+    const { model, providerOptions } = await getLLM();
     const result = streamText({
-      model: llm,
-      prompt: prompt
+      model,
+      prompt: prompt,
+      ...(providerOptions ? { providerOptions } : {}),
     });
 
     if (!result.text) throw new Error("empty");
@@ -61,6 +63,9 @@ Return a text as an answer.
     return result.toTextStreamResponse()
   } catch (e) {
     console.log(e)
-    return NextResponse.json({ error: "Generation failed", detail: String(e) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Generation failed", detail: String(e), provider: await llmLabel().catch(() => "the LLM") },
+      { status: 500 }
+    );
   }
 }

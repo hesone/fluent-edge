@@ -1,20 +1,16 @@
-// Browser Web Speech API text-to-speech client.
+// Browser Web Speech API text-to-speech — the "online" TTS adapter.
 //
-// Replaces the old Piper/WebSocket TTS path: synthesis now runs entirely in
-// the browser via `speechSynthesis` — no media server, no voice model files.
-// Voices come from the user's OS/browser, selected per locale. Word-boundary
-// events drive the karaoke highlighting in TTSSentences.tsx.
+// Synthesis runs entirely in the browser via `speechSynthesis`: no media
+// server, no voice model files. Voices come from the user's OS/browser,
+// selected per locale. Word-boundary events, where the voice emits them, drive
+// the karaoke highlighting in TTSSentences.tsx. The offline counterpart is
+// ./piper.ts.
 
-import { toBCP47 } from "./i18n";
+import { toBCP47 } from "../i18n";
+import type { TTSAdapter, TTSSpeakHandlers } from "./types";
 
-export interface SpeakHandlers {
-  /** Fired when synthesis actually begins. */
-  onStart?: () => void;
-  /** Fired at each word boundary with the char offset into `text`. */
-  onWord?: (charIndex: number) => void;
-  /** Fired when playback finishes (or is cancelled). */
-  onEnd?: () => void;
-}
+/** @deprecated kept as an alias so older imports keep compiling. */
+export type SpeakHandlers = TTSSpeakHandlers;
 
 // Resolve the available voice list, waiting for it to populate if needed.
 // `getVoices()` is often empty until the async `voiceschanged` event fires.
@@ -95,7 +91,12 @@ async function pickVoice(locale: string): Promise<SpeechSynthesisVoice | null> {
   return pool.slice().sort((a, b) => voiceQuality(b) - voiceQuality(a))[0] ?? null;
 }
 
-export class TTSClient {
+export class WebSpeechTTS implements TTSAdapter {
+  readonly provider = "web" as const;
+  /** Most desktop voices emit word boundaries; network voices often don't, so
+   *  the component keeps its estimated timer as a fallback either way. */
+  readonly hasWordBoundaries = true;
+
   private current: SpeechSynthesisUtterance | null = null;
 
   /** True if this browser exposes the Web Speech synthesis API. */
@@ -103,12 +104,16 @@ export class TTSClient {
     return typeof window !== "undefined" && "speechSynthesis" in window;
   }
 
+  isSupported(): boolean {
+    return WebSpeechTTS.isSupported();
+  }
+
   /**
    * Synthesise and play `text`. Resolves when playback finishes. Cancels any
    * utterance already in flight.
    */
-  async speak(text: string, lang = "en", handlers: SpeakHandlers = {}): Promise<void> {
-    if (!TTSClient.isSupported()) throw new Error("SpeechSynthesis not supported in this browser");
+  async speak(text: string, lang = "en", handlers: TTSSpeakHandlers = {}): Promise<void> {
+    if (!WebSpeechTTS.isSupported()) throw new Error("SpeechSynthesis not supported in this browser");
     if (!text || !text.trim()) return;
 
     this.stop();
@@ -123,7 +128,10 @@ export class TTSClient {
       u.rate = 0.8;
       u.pitch = 1;
 
-      u.onstart = () => handlers.onStart?.();
+      // No duration and no scheduling clock are available from this engine —
+      // the component falls back to its calibrated estimate, corrected by
+      // onWord boundaries whenever this voice emits them.
+      u.onstart = () => handlers.onStart?.({});
 
       u.onboundary = (e: SpeechSynthesisEvent) => {
         // Some engines tag sentence boundaries too; only act on words
@@ -155,12 +163,12 @@ export class TTSClient {
 
   /** Whether the engine is currently speaking. */
   speaking(): boolean {
-    return TTSClient.isSupported() && window.speechSynthesis.speaking;
+    return WebSpeechTTS.isSupported() && window.speechSynthesis.speaking;
   }
 
   /** Stop playback immediately and cancel any pending utterance. */
   stop() {
-    if (!TTSClient.isSupported()) return;
+    if (!WebSpeechTTS.isSupported()) return;
     if (this.current) {
       this.current.onend = null;
       this.current.onboundary = null;

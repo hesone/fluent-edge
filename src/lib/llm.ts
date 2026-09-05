@@ -1,20 +1,82 @@
-// LLM provider — OpenRouter (OpenAI-compatible) via the Vercel AI SDK.
+// LLM provider — one seam, two backends.
 //
-// Replaces the previous local Ollama setup. Configure in .env.local:
-//   OPENROUTER_API_KEY=sk-or-...        (required — get one at openrouter.ai/keys)
-//   OPENROUTER_MODEL=...                (optional — defaults to a free model)
+//   online → OpenRouter (OpenAI-compatible) — needs OPENROUTER_API_KEY
+//   local  → Ollama on your own machine     — needs `ollama serve` + a pulled model
 //
-// Note: free models have request rate limits and vary in how reliably they
-// honour structured/JSON output. Swap OPENROUTER_MODEL for a paid model if the
-// grading / question-generation JSON ever comes back malformed.
+// Which one is used comes from src/lib/config.ts (LLM_PROVIDER, else APP_MODE).
+// Server-side only: this module reads secrets, so never import it into a
+// client component.
+//
+// Note: free OpenRouter models have request rate limits and vary in how
+// reliably they honour structured/JSON output. If grading or question
+// generation ever returns malformed JSON, switch OPENROUTER_MODEL to a paid
+// model. Ollama needs an explicit format:"json" nudge for the same reason —
+// that is what `providerOptions` below carries.
 
+import type { LanguageModel } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createOllama } from "ai-sdk-ollama";
+import {
+  OLLAMA_MODEL,
+  OLLAMA_URL,
+  OPENROUTER_MODEL,
+  resolveLLMProvider,
+  type LLMProvider,
+} from "./config.server";
 
-const openrouter = createOpenRouter({
-  apiKey: process.env.OPENROUTER_API_KEY ?? "",
-});
+export interface LLMHandle {
+  provider: LLMProvider;
+  /** Model id in use — handy for logs and error messages. */
+  modelId: string;
+  model: LanguageModel;
+  /**
+   * Extra options to spread into generateText / streamText. Ollama needs
+   * format:"json" for structured output; OpenRouter needs nothing.
+   */
+  providerOptions?: Record<string, Record<string, string>>;
+}
 
-export const MODEL_ID = process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b:free";
+let cached: LLMHandle | null = null;
 
-/** Shared chat model used by all API routes. */
-export const llm = openrouter.chat(MODEL_ID);
+/** Resolve the configured LLM once per server process. */
+export async function getLLM(): Promise<LLMHandle> {
+  if (cached) return cached;
+
+  const provider = await resolveLLMProvider();
+
+  if (provider === "ollama") {
+    const ollama = createOllama({ baseURL: OLLAMA_URL });
+    cached = {
+      provider,
+      modelId: OLLAMA_MODEL,
+      model: ollama(OLLAMA_MODEL) as LanguageModel,
+      providerOptions: { ollama: { format: "json" } },
+    };
+    return cached;
+  }
+
+  const apiKey = process.env.OPENROUTER_API_KEY ?? "";
+  if (!apiKey) {
+    throw new Error(
+      "OPENROUTER_API_KEY is not set. Add it to .env.local, or run locally " +
+        "with NEXT_PUBLIC_APP_MODE=local (or LLM_PROVIDER=ollama)."
+    );
+  }
+
+  const openrouter = createOpenRouter({ apiKey });
+  cached = {
+    provider,
+    modelId: OPENROUTER_MODEL,
+    model: openrouter.chat(OPENROUTER_MODEL) as LanguageModel,
+  };
+  return cached;
+}
+
+/**
+ * Human-readable name of whatever is serving requests, for error copy that
+ * tells the user which thing to go start.
+ */
+export async function llmLabel(): Promise<string> {
+  const { provider, modelId } = await getLLM();
+  return provider === "ollama" ? `Ollama (${modelId})` : `OpenRouter (${modelId})`;
+}

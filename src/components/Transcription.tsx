@@ -1,6 +1,7 @@
 import { t, LangLevel } from "@/lib/i18n";
 import { matchTranscript, pronunciationScore, WordState } from "@/lib/pronunciation";
-import { SpeechStream } from "@/lib/sttClient";
+import { createSTT, type STTAdapter } from "@/lib/stt";
+import { MEDIA_WS_URL, type STTProvider } from "@/lib/config";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useEffect, useRef, useState } from "react";
 import LiveTranscript from "./LiveTranscript";
@@ -33,9 +34,28 @@ function getThreshold(level: LangLevel, wordCount: number): number {
 	return Math.max(MIN_THRESHOLD, base - (wordCount - 25) * 0.01);
 }
 
-export default function Transcription({ activeQuestion, setError, transcriptFinished, triggerRecording }: TranscriptionProps) {
-  const sttRef = useRef<SpeechStream | null>(null);
+// Provider-specific error copy — tells the user which thing to go fix.
+function unsupportedMessage(provider: STTProvider): string {
+	return provider === "whisper"
+		? "This browser can't open a WebSocket to the local media server. Face scoring still works."
+		: "Speech recognition isn't supported in this browser — please use Chrome or Edge, or switch to local mode. Face scoring still works.";
+}
+
+function startFailureMessage(provider: STTProvider): string {
+	return provider === "whisper"
+		? `Can't reach the local media server at ${MEDIA_WS_URL} — start it with \`npm run media\`. Face scoring still works.`
+		: "Couldn't start speech recognition — check the microphone permission. Face scoring still works.";
+}
+
+export default function Transcription({ activeQuestion, setError, transcriptFinished, stream, triggerRecording }: TranscriptionProps) {
+  const sttRef = useRef<STTAdapter | null>(null);
 	const transcriptRef = useRef("");
+
+	// The mic stream lives in the parent and is re-created on remount. Read it
+	// through a ref so the recognition callbacks always see the current one
+	// without re-running the setup effect.
+	const streamRef = useRef<MediaStream | null>(stream);
+	streamRef.current = stream;
 
 	const {
 		questions, language, seniority, langLevel,
@@ -51,41 +71,71 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	const [showHint, setShowHint] = useState(false);
 	const [grading, setGrading] = useState(false);
 	const [recording, setRecording] = useState(false);
+	const [sttReady, setSttReady] = useState(false);
+	const [sttProvider, setSttProvider] = useState<STTProvider | null>(null);
 
-	// Set up the browser Web Speech recognition client. Recreated per question
-	// so the result handler closes over the current question's expected words.
+	// Set up the speech-to-text adapter — Web Speech online, whisper.cpp over
+	// the local media server offline (src/lib/config.ts decides which).
+	// Recreated per question so the result handler closes over the current
+	// question's expected words.
 	useEffect(() => {
-		if (!SpeechStream.isSupported()) {
-			setError("Speech recognition isn't supported in this browser — please use Chrome or Edge. Face scoring still works.");
-			return;
-		}
+		let disposed = false;
+		setSttReady(false);
 
-		sttRef.current = new SpeechStream((text, isFinal) => {
-			transcriptRef.current = isFinal
-				? (transcriptRef.current + " " + text).trim()
-				: transcriptRef.current;
-			const display = isFinal ? transcriptRef.current : (transcriptRef.current + " " + text).trim();
-			setTranscript(display);
-			handleTranscript(display);
-		});
+		(async () => {
+			const adapter = await createSTT((text, isFinal) => {
+				transcriptRef.current = isFinal
+					? (transcriptRef.current + " " + text).trim()
+					: transcriptRef.current;
+				const display = isFinal ? transcriptRef.current : (transcriptRef.current + " " + text).trim();
+				setTranscript(display);
+				handleTranscript(display);
+			});
+
+			// The question may have changed while the provider was resolving.
+			if (disposed) return;
+
+			setSttProvider(adapter.provider);
+
+			if (!adapter.isSupported()) {
+				setError(unsupportedMessage(adapter.provider));
+				return;
+			}
+
+			sttRef.current = adapter;
+			setSttReady(true);
+		})();
 
 		return () => {
+			disposed = true;
 			sttRef.current?.stop();
 			sttRef.current = null;
 			setRecording(false);
+			setSttReady(false);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [activeQuestion]);
 
-	function triggerTranscription() {
-		if (!sttRef.current) return;
-		triggerRecording();
+	async function triggerTranscription() {
+		const stt = sttRef.current;
+		if (!stt) return;
+
 		if (recording) {
-			sttRef.current.stop();
+			stt.stop();
 			setRecording(false);
-		} else {
-			sttRef.current.start(null, { language });
+			triggerRecording();
+			return;
+		}
+
+		try {
+			// Web Speech opens the mic itself; whisper.cpp has to be fed the
+			// stream the parent already holds for the camera.
+			await stt.start(stt.needsStream ? streamRef.current : null, { language });
 			setRecording(true);
+			triggerRecording();
+		} catch (e) {
+			console.warn("STT start failed", e);
+			setError(startFailureMessage(stt.provider));
 		}
 	}
 
@@ -164,6 +214,15 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 						{allGreen ? "From Memory 🧠" : t(language, "idealAnswer")}
 					</span>
 					<div	className="flex items-center gap-2 text-xs text-slate-400 h-1">
+						{sttProvider && (
+							<span
+								title={sttProvider === "whisper"
+									? `whisper.cpp via the local media server (${MEDIA_WS_URL})`
+									: "Web Speech API — recognition happens in your browser"}
+								className="rounded bg-slate-800/80 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
+								{sttProvider === "whisper" ? "local" : "online"}
+							</span>
+						)}
 						{allGreen && !memoryDone && (
 							<button onClick={() => setShowHint((s) => !s)}
 								className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
@@ -172,8 +231,8 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 						)}
 						
 						{recording && !memoryDone &&
-							<button onClick={triggerTranscription}
-											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
+							<button onClick={triggerTranscription} disabled={!sttReady}
+											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700 disabled:opacity-40">
 								{recording ? t(language, "stopRecording") : t(language, "startRecording")}
 							</button>
 						}
@@ -199,8 +258,8 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 				)}
 
 				{!recording && !memoryDone &&
-					<button onClick={triggerTranscription}
-									className="rounded-lg bg-emerald-600 px-3 py-4 mt-4 text-xs hover:bg-emerald-500 w-full">
+					<button onClick={triggerTranscription} disabled={!sttReady}
+									className="rounded-lg bg-emerald-600 px-3 py-4 mt-4 text-xs hover:bg-emerald-500 w-full disabled:opacity-40">
 								{t(language, "startRecording")}
 					</button>
 				}

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LANG_LEVEL, LANG_NAME } from "@/lib/i18n";
 import { generateText, Output } from "ai";
-import { llm } from "@/lib/llm";
+import { getLLM, llmLabel } from "@/lib/llm";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -93,8 +93,9 @@ Return ONLY valid JSON in this exact shape:
 }
 
   try {
+    const { model, providerOptions } = await getLLM();
     const { output } = await generateText({
-      model: llm,
+      model,
       prompt: prompt,
       output: Output.object({
         schema: z.object({
@@ -108,6 +109,7 @@ Return ONLY valid JSON in this exact shape:
           )
         })
       }),
+      ...(providerOptions ? { providerOptions } : {}),
     });
 
     const topic = output.topic
@@ -117,6 +119,9 @@ Return ONLY valid JSON in this exact shape:
     return NextResponse.json({ questions, topic });
   } catch (e) {
     console.log(e)
-    return NextResponse.json({ error: "Generation failed", detail: String(e) }, { status: 500 });
+    return NextResponse.json(
+      { error: "Generation failed", detail: String(e), provider: await llmLabel().catch(() => "the LLM") },
+      { status: 500 }
+    );
   }
 }

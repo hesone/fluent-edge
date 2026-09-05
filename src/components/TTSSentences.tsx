@@ -1,7 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState, useImperativeHandle, Ref } from "react";
-import { TTSClient } from "@/lib/ttsClient";
+import { createTTS } from "@/lib/tts";
+import type { TTSAdapter } from "@/lib/tts";
+
+// Karaoke highlighting has to work over two very different engines:
+//
+//   Piper (local)       hands back a finished PCM buffer, so the exact duration
+//                       and the AudioContext clock it is scheduled on are known
+//                       before the first sample plays. Highlighting is an
+//                       interpolation against that clock — no drift.
+//   Web Speech (online) reports no duration at all. Some voices emit word
+//                       boundary events; many (Chrome's network "Google"
+//                       voices) emit none.
+//
+// So the component runs one estimated timer that always works, and lets better
+// information override it as it arrives: a real duration from the engine
+// replaces the estimate before playback starts, and real boundary events
+// replace the timer entirely once they show up. When neither is available, the
+// estimate self-calibrates from how long previous utterances actually took.
 
 // ─── Word spans ──────────────────────────────────────────────────────────────
 
@@ -24,8 +41,7 @@ function computeWordSpans(text: string): WordSpan[] {
   return spans;
 }
 
-// Find the index of the word that contains (or most recently started before)
-// the given character offset.
+// Index of the word containing (or most recently started before) a char offset.
 function wordIndexAt(spans: WordSpan[], charIndex: number): number {
   let idx = -1;
   for (let i = 0; i < spans.length; i++) {
@@ -35,26 +51,22 @@ function wordIndexAt(spans: WordSpan[], charIndex: number): number {
   return idx;
 }
 
-// ─── Hook ────────────────────────────────────────────────────────────────────
+// ─── Duration estimation & self-calibration ──────────────────────────────────
 
-interface UseTTSOptions {
-  text: string;
-  lang?: string;
-  onDone?: () => void;
-}
-
-// Approx characters spoken per second at rate=1 — the starting guess before
-// the engine's real rate has been measured. Only used for voices that emit no
-// boundary events.
+// Approx characters spoken per second at rate=1 — the starting guess before the
+// engine's real rate has been measured. Only used for engines that report
+// neither a duration nor boundary events.
 const CHARS_PER_SEC = 13;
 
-// Self-calibration. The Web Speech API won't tell us an utterance's duration up
-// front, but we can time how long each one actually takes and learn from it:
+// The Web Speech API won't tell us an utterance's duration up front, but we can
+// time how long each one actually takes and learn from it:
 //   • `measuredCharsPerSec` — a running estimate of this engine's speaking rate,
-//     so the very first highlight of any new text is close and gets better.
+//     so the first highlight of any new text is close and gets better.
 //   • `durationCache` — the exact measured duration per text, so replaying the
 //     same answer (common in Study mode) highlights in near-perfect sync.
-// Module-level so the calibration persists across component instances/questions.
+// Module-level so calibration persists across component instances/questions.
+// Piper never feeds this: it reports its true duration, so there is nothing to
+// learn and nothing that could skew the estimate for the other engine.
 let measuredCharsPerSec = CHARS_PER_SEC;
 const durationCache = new Map<string, number>();
 
@@ -74,15 +86,17 @@ function recordMeasurement(text: string, durationSecs: number) {
   measuredCharsPerSec = measuredCharsPerSec * 0.7 + cps * 0.3; // smooth
 }
 
-// Estimate a [start,end] time (seconds, relative to playback start) for each
-// word, distributing an estimated total duration by word length with a little
-// extra weight on punctuation pauses.
-function estimateWordTimings(words: string[], durationSecs: number): { start: number; end: number }[] {
+// Distribute a total duration across words by length, with extra weight on
+// punctuation pauses.
+function estimateWordTimings(
+  words: string[],
+  durationSecs: number
+): { start: number; end: number }[] {
   if (!words.length || durationSecs <= 0) return [];
   const weightOf = (w: string) => {
     const base = Math.max(w.replace(/[^\p{L}\p{N}]/gu, "").length, 1);
-    if (/[.!?]["'”’)\]]*$/.test(w)) return base + 4;
-    if (/[,;:—–-]["'”’)\]]*$/.test(w)) return base + 2;
+    if (/[.!?]["'”’)\]]*$/.test(w)) return base + 4;  // sentence end — longer pause
+    if (/[,;:—–-]["'”’)\]]*$/.test(w)) return base + 2; // clause break — shorter pause
     return base;
   };
   const weights = words.map(weightOf);
@@ -96,105 +110,168 @@ function estimateWordTimings(words: string[], durationSecs: number): { start: nu
   });
 }
 
+// ─── Hook ────────────────────────────────────────────────────────────────────
+
+interface UseTTSOptions {
+  text: string;
+  lang?: string;
+  onDone?: () => void;
+}
+
+// A word must stay lit at least this long before the next one takes over, so
+// that words skipped by a slow frame still get a visible beat each instead of
+// being collapsed into their successor by React's state batching.
+const MIN_BOUNCE_MS = 60;
+
 function useTTS({ text, lang = "en", onDone }: UseTTSOptions) {
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [playing, setPlaying] = useState(false);
 
-  // One TTSClient instance per component, created lazily, torn down on unmount.
-  const clientRef = useRef<TTSClient | null>(null);
+  // One adapter instance per component, created lazily (the provider may need
+  // a probe to resolve), torn down on unmount.
+  const clientRef = useRef<TTSAdapter | null>(null);
   const rafRef = useRef<number | null>(null);
+  const bounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelledRef = useRef(false);
 
-  function getClient(): TTSClient {
-    if (!clientRef.current) clientRef.current = new TTSClient();
+  async function getClient(): Promise<TTSAdapter> {
+    if (!clientRef.current) clientRef.current = await createTTS();
     return clientRef.current;
   }
 
-  const cancelTimer = useCallback(() => {
+  const cancelRaf = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
   }, []);
 
+  const cancelTimers = useCallback(() => {
+    cancelRaf();
+    if (bounceRef.current !== null) {
+      clearTimeout(bounceRef.current);
+      bounceRef.current = null;
+    }
+  }, [cancelRaf]);
+
   const play = useCallback(async () => {
-    if (!text || !TTSClient.isSupported()) return;
-    const client = getClient();
+    if (!text) return;
+
+    const client = await getClient();
+    if (!client.isSupported()) return;
+
     const spans = computeWordSpans(text);
     const words = spans.map((s) => s.word);
-    const timings = estimateWordTimings(words, estimatedDuration(text));
 
     setActiveIndex(-1);
     setPlaying(true);
-    cancelTimer();
+    cancelTimers();
     cancelledRef.current = false;
 
-    // Highlighting is driven two ways, with boundary events winning when a
-    // voice provides them:
-    //   • Estimated timer — always runs, so karaoke works even on voices that
-    //     emit no boundary events (e.g. Chrome's network "Google" voices).
-    //   • Real boundary events — when they arrive, they're exact, so we drop
-    //     the estimate and follow them instead.
+    // Provisional timings from the calibrated estimate. Replaced in onStart if
+    // the engine turns out to know its real duration.
+    let timings = estimateWordTimings(words, estimatedDuration(text));
+    let engineReportedDuration = false;
     let usingBoundaries = false;
+
+    // Default time base: wall clock. Piper swaps in its AudioContext clock,
+    // which cannot drift against the audio it scheduled.
+    let clock: () => number = () => performance.now() / 1000;
     let startedAt = 0;
 
+    // Words queued to light up but not yet rendered — see MIN_BOUNCE_MS.
+    let lastFired = -1;
+    const queue: number[] = [];
+    let draining = false;
+
+    const drain = () => {
+      if (draining) return;
+      draining = true;
+      const step = () => {
+        bounceRef.current = null;
+        const next = queue.shift();
+        if (next === undefined) {
+          draining = false;
+          return;
+        }
+        setActiveIndex(next);
+        if (queue.length > 0) bounceRef.current = setTimeout(step, MIN_BOUNCE_MS);
+        else draining = false;
+      };
+      step();
+    };
+
+    const enqueueThrough = (idx: number) => {
+      if (idx <= lastFired) return;
+      for (let i = lastFired + 1; i <= idx; i++) queue.push(i);
+      lastFired = idx;
+      drain();
+    };
+
     const runTimer = () => {
-      if (usingBoundaries) return;
-      const elapsed = (performance.now() - startedAt) / 1000;
-      let idx = -1;
+      if (usingBoundaries) return; // real boundaries took over
+      const elapsed = clock() - startedAt;
       for (let i = 0; i < timings.length; i++) {
-        if (elapsed >= timings[i].start) idx = i;
-        else break;
+        if (elapsed >= timings[i].start && i > lastFired) enqueueThrough(i);
+        else if (elapsed < timings[i].start) break;
       }
-      if (idx >= 0) setActiveIndex(idx);
-      if (elapsed < (timings[timings.length - 1]?.end ?? 0)) {
+      if (elapsed < (timings[timings.length - 1]?.end ?? 0) + 0.3) {
         rafRef.current = requestAnimationFrame(runTimer);
       }
     };
 
     try {
       await client.speak(text, lang, {
-        onStart: () => {
-          startedAt = performance.now();
+        onStart: (info) => {
+          if (typeof info.durationSecs === "number" && info.durationSecs > 0) {
+            timings = estimateWordTimings(words, info.durationSecs);
+            engineReportedDuration = true;
+          }
+          if (info.clock) {
+            clock = info.clock;
+            startedAt = info.startedAt ?? info.clock();
+          } else {
+            startedAt = performance.now() / 1000;
+          }
           if (!usingBoundaries) rafRef.current = requestAnimationFrame(runTimer);
         },
         onWord: (charIndex) => {
           usingBoundaries = true; // exact boundaries available → ditch the estimate
-          cancelTimer();
+          cancelRaf();            // ...but let the bounce queue finish draining
           const idx = wordIndexAt(spans, charIndex);
-          if (idx >= 0) setActiveIndex(idx);
+          if (idx >= 0) enqueueThrough(idx);
         },
       });
 
-      // Speech finished on its own — learn this engine's real timing so the
-      // next play (and replays of this text) sync better.
-      if (!cancelledRef.current && startedAt > 0) {
-        recordMeasurement(text, (performance.now() - startedAt) / 1000);
+      // Only the estimating engine has anything to learn: Piper already told us
+      // the truth, so folding its timing in would just add noise.
+      if (!cancelledRef.current && startedAt > 0 && !engineReportedDuration) {
+        recordMeasurement(text, clock() - startedAt);
       }
     } finally {
-      cancelTimer();
+      cancelTimers();
       setActiveIndex(-1);
       setPlaying(false);
       onDone?.();
     }
-  }, [text, lang, onDone, cancelTimer]);
+  }, [text, lang, onDone, cancelTimers, cancelRaf]);
 
   const stop = useCallback(() => {
     cancelledRef.current = true; // don't let an interrupted play skew calibration
     clientRef.current?.stop();
-    cancelTimer();
+    cancelTimers();
     setActiveIndex(-1);
     setPlaying(false);
-  }, [cancelTimer]);
+  }, [cancelTimers]);
 
   // Full teardown on unmount only.
   useEffect(() => {
     return () => {
-      cancelTimer();
+      cancelTimers();
       clientRef.current?.close();
       clientRef.current = null;
     };
-  }, [cancelTimer]);
+  }, [cancelTimers]);
 
   return { play, stop, playing, activeIndex };
 }

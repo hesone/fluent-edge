@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useSessionStore, Mode, Seniority, Converstion } from "@/store/useSessionStore";
 import { LANGS, LANG_LEVEL, Lang, LangLevel, isRTL, t } from "@/lib/i18n";
 import PreferredQA from "@/components/PreferredQA";
+import { APP_MODE } from "@/lib/config";
 
 export default function Onboarding() {
   const router = useRouter();
@@ -61,12 +62,24 @@ export default function Onboarding() {
         }),
       });
       const data = await res.json();
-      if (!data.questions?.length) throw new Error(data.detail || "no questions");
+      if (!data.questions?.length) {
+        // The route reports which backend it was talking to, so the message can
+        // name the thing to go start instead of guessing.
+        throw new Error(
+          [data.provider && `via ${data.provider}`, data.detail || "no questions"]
+            .filter(Boolean)
+            .join(" — ")
+        );
+      }
       setOnboarding({ resumeText, language, mode, seniority, convType, langLevel, situation, topic: data.topic });
       setQuestions(data.questions);
       router.push("/study");
     } catch (e) {
-      setError("Failed to generate questions. Is AI Model running? " + String(e));
+      setError(
+        APP_MODE === "local"
+          ? "Failed to generate questions. Is Ollama running (ollama serve)? " + String(e)
+          : "Failed to generate questions. Check your OpenRouter key and connection. " + String(e)
+      );
       setLoading(false);
     }
   }

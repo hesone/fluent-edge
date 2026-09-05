@@ -1,15 +1,15 @@
-// Browser Web Speech API speech-to-text client.
+// Browser Web Speech API speech-to-text — the "online" STT adapter.
 //
-// Drop-in replacement for the old Whisper.cpp WebSocket streaming client:
-// same public surface (constructor(onResult), start, stop, connected) so the
-// consuming component barely changes. Recognition runs entirely in the
-// browser via the Web Speech `SpeechRecognition` API — no media server, no
-// model files. Supported in Chromium browsers (Chrome / Edge). Firefox has no
-// SpeechRecognition; Safari support is partial.
+// Recognition runs entirely in the browser via `SpeechRecognition`: no media
+// server, no model files, but it needs a network connection and a Chromium
+// browser (Chrome / Edge). Firefox has no SpeechRecognition; Safari support is
+// partial. The offline counterpart is ./whisper.ts.
 
-import { toBCP47 } from "./i18n";
+import { toBCP47 } from "../i18n";
+import type { STTAdapter, STTConfig, STTHandler } from "./types";
 
-export type SpeechHandler = (text: string, isFinal: boolean) => void;
+/** @deprecated kept as an alias so older imports keep compiling. */
+export type SpeechHandler = STTHandler;
 
 // The constructor is vendor-prefixed in Chromium. No DOM lib types ship for it.
 type SpeechRecognitionLike = any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -23,15 +23,18 @@ function getRecognitionCtor(): SpeechRecognitionLike | null {
   );
 }
 
-export class SpeechStream {
+export class SpeechStream implements STTAdapter {
+  readonly provider = "web" as const;
+  readonly needsStream = false;
+
   private recognition: SpeechRecognitionLike | null = null;
-  private onResult: SpeechHandler;
+  private onResult: STTHandler;
   private running = false;
   private manualStop = false;
   private discarding = false;
   private language = "en-US";
 
-  constructor(onResult: SpeechHandler) {
+  constructor(onResult: STTHandler) {
     this.onResult = onResult;
   }
 
@@ -40,12 +43,15 @@ export class SpeechStream {
     return getRecognitionCtor() !== null;
   }
 
+  isSupported(): boolean {
+    return SpeechStream.isSupported();
+  }
+
   /**
-   * Begin recognition. `stream` is accepted for signature compatibility with
-   * the old WhisperStream but is ignored — SpeechRecognition opens the mic
-   * itself.
+   * Begin recognition. `stream` is ignored — SpeechRecognition opens the mic
+   * itself (see `needsStream`).
    */
-  async start(_stream: MediaStream | null, config: { language: string }) {
+  async start(_stream: MediaStream | null, config: STTConfig) {
     const Ctor = getRecognitionCtor();
     if (!Ctor) throw new Error("SpeechRecognition not supported in this browser");
 
