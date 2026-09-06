@@ -360,7 +360,7 @@ function VideoOverlays() {
               <div className="aspect-[4/3] w-full" />
               <div className="pointer-events-none absolute inset-x-3 top-3">
                 <ConfidenceGauge
-                  m={{ confidence: 82, eyeContact: 74, nervousness: 28, engagement: 66, headStability: 88 }}
+                  m={{ confidence: 82, eyeContact: 74, nervousness: 28, engagement: 66, headStability: 88, calibrating: false }}
                 />
               </div>
               <div className="pointer-events-none absolute inset-x-0 bottom-0 px-4 pb-3.5 pt-10"
@@ -377,12 +377,24 @@ function VideoOverlays() {
         <div className="aspect-[16/6] w-full" />
         <div className="pointer-events-none absolute inset-x-3 top-3">
           <ConfidenceGauge
-            m={{ confidence: 38, eyeContact: 31, nervousness: 72, engagement: 44, headStability: 60 }}
+            m={{ confidence: 38, eyeContact: 31, nervousness: 72, engagement: 44, headStability: 60, calibrating: false }}
           />
         </div>
       </div>
       <p className="text-sm text-fg-muted">
         Low score with a weak metric — one instruction surfaces instead of four numbers.
+      </p>
+      <div className="relative overflow-hidden rounded-2xl border border-line" style={{ background: "#20303a" }}>
+        <div className="aspect-[16/5] w-full" />
+        <div className="pointer-events-none absolute inset-x-3 top-3">
+          <ConfidenceGauge
+            m={{ confidence: 50, eyeContact: 50, nervousness: 30, engagement: 50, headStability: 70, calibrating: true }}
+          />
+        </div>
+      </div>
+      <p className="text-sm text-fg-muted">
+        First ~1.8s: the scorer is learning this person&apos;s neutral pose, so there is no honest
+        number to show yet.
       </p>
       <RecordButton recording={false} matched={11} total={19} threshold={0.92} onClick={() => {}} />
       <RecordButton recording matched={16} total={19} threshold={0.92} onClick={() => {}} />

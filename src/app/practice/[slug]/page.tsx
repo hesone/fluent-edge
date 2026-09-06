@@ -19,6 +19,7 @@ import { LuSettings2 } from "react-icons/lu";
 
 const emptyMetrics: FaceMetrics = {
   confidence: 50, eyeContact: 50, nervousness: 30, engagement: 50, headStability: 70,
+  calibrating: true,
 };
 
 export default function Practice({ params }: { params: Promise<{ slug: string }> }) {
@@ -166,9 +167,11 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
       if (v && lm && v.readyState >= 2) {
         const res: FaceLandmarkerResult = lm.detectForVideo(v, performance.now());
         if (res.faceLandmarks?.[0]) {
-          const m = scorerRef.current.update(res.faceLandmarks[0]);
+          const m = scorerRef.current.update(res.faceLandmarks[0], performance.now());
           setMetrics(m);
-          faceSamples.current.push(m.confidence);
+          // Calibration frames are not a score — sampling them would drag every
+          // session average toward the seed value.
+          if (!m.calibrating) faceSamples.current.push(m.confidence);
         }
       }
       rafRef.current = requestAnimationFrame(run);

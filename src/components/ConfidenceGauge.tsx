@@ -46,6 +46,34 @@ function nudgeFor(m: FaceMetrics): { icon: string; text: string } | null {
 }
 
 export default function ConfidenceGauge({ m }: { m: FaceMetrics }) {
+  // While the scorer is learning this person's neutral pose there is no
+  // meaningful number to show, and showing the seed value would be a lie.
+  if (m.calibrating) {
+    return (
+      <>
+        <p className="sr-only" role="status">Calibrating delivery scoring.</p>
+        <div
+          aria-hidden
+          className="inline-flex items-center gap-2 rounded-2xl px-3 py-2"
+          style={{ background: INK, boxShadow: "inset 0 0 0 1px rgb(255 255 255 / 0.14)" }}
+        >
+          <span className="flex gap-1">
+            {[0, 1, 2].map((i) => (
+              <span
+                key={i}
+                className="h-1.5 w-1.5 animate-pulse rounded-full"
+                style={{ background: LIME, animationDelay: `${i * 160}ms` }}
+              />
+            ))}
+          </span>
+          <span className="text-2xs font-semibold uppercase tracking-[0.18em]" style={{ color: DIM }}>
+            Calibrating
+          </span>
+        </div>
+      </>
+    );
+  }
+
   const c = Math.max(0, Math.min(100, m.confidence));
   const band = c >= 70 ? "Strong" : c >= 45 ? "Steady" : "Low";
   const tone = c >= 70 ? LIME : c >= 45 ? AMBER : RED;
