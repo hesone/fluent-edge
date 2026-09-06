@@ -318,9 +318,17 @@ export default function TTSSentence({
 
   return (
     <div className={className}>
-      <p className="text-lg leading-relaxed text-slate-200 whitespace-pre-wrap flex flex-wrap gap-1">
+      {/* The read-along highlight marks the current word with weight and a
+          tinted background, not colour alone, and the whole line stays
+          selectable as ordinary text. */}
+      <p className="flex flex-wrap gap-1 whitespace-pre-wrap text-lg leading-relaxed">
         {words.map((word, i) => (
-          <span key={i} className={`duration-75 ${i === activeIndex ? 'text-white font-bold scale-95 -mx-0.5' : ''}`}>
+          <span
+            key={i}
+            className={`rounded px-0.5 duration-75 ${
+              i === activeIndex ? "bg-accent-soft font-bold text-accent-text" : ""
+            }`}
+          >
             {word}
           </span>
         ))}

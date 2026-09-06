@@ -2,35 +2,44 @@
 import { useEffect, useRef, useState, useCallback, use } from "react";
 import { useRouter } from "next/navigation";
 import { useSessionStore } from "@/store/useSessionStore";
-import { isRTL } from "@/lib/i18n";
 import { FaceScorer, type FaceMetrics } from "@/lib/faceScoring";
 import ConfidenceGauge from "@/components/ConfidenceGauge";
-import Stepper from "@/components/Stepper";
 import {
   FaceLandmarker, FilesetResolver, type FaceLandmarkerResult,
 } from "@mediapipe/tasks-vision";
 import Transcription from "@/components/Transcription";
+import Alert from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import PageShell from "@/components/ui/PageShell";
+import Progress from "@/components/ui/Progress";
+import Waveform from "@/components/ui/Waveform";
 
 const emptyMetrics: FaceMetrics = {
   confidence: 50, eyeContact: 50, nervousness: 30, engagement: 50, headStability: 70,
 };
 
 export default function Practice({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug: activeQuestion} = use(params)
-  const [hydrated, setHydrated] = useState(useSessionStore.persist.hasHydrated());
+  const { slug: activeQuestion } = use(params);
+  // Starts false on both server and client: reading the persist API during the
+  // server render threw (it only exists in the browser), which 500'd this
+  // route. The subscription is also kept alive until unmount — the previous
+  // code unsubscribed on the same tick, so the callback could never fire.
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const unsub = useSessionStore.persist.onFinishHydration(() => {
-      setHydrated(true);
-    });
-    if (useSessionStore.persist.hasHydrated()) {
-      setHydrated(true);
-    }
-    unsub();
+    const persist = useSessionStore.persist;
+    if (!persist) { setHydrated(true); return; }
+    if (persist.hasHydrated()) { setHydrated(true); return; }
+    return persist.onFinishHydration(() => setHydrated(true));
   }, []);
 
   if (!hydrated) {
-    return <div className="flex min-h-screen items-center justify-center text-slate-400">Loading your session...</div>;
+    return (
+      <PageShell title="Practice" titleSrOnly>
+        <p role="status" className="text-center text-fg-muted">Loading your session…</p>
+      </PageShell>
+    );
   }
 
   return <PracticeContent activeQuestion={Number(activeQuestion)} />;
@@ -38,10 +47,7 @@ export default function Practice({ params }: { params: Promise<{ slug: string }>
 
 const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   const router = useRouter();
-
-  const { questions, language, saveResult } = useSessionStore();
-
-  const rtl = isRTL(language);
+  const { questions, saveResult } = useSessionStore();
   const q = questions[activeQuestion];
 
   // refs
@@ -56,8 +62,8 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
 
   // state
   const [metrics, setMetrics] = useState<FaceMetrics>(emptyMetrics);
-  
   const [ready, setReady] = useState(false);
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState("");
 
   // ---- Setup camera + mic + models ----
@@ -76,7 +82,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
           await videoRef.current.play();
         }
 
-        // MediaPipe FaceLandmarker
         const filesets = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm"
         );
@@ -91,7 +96,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
           outputFaceBlendshapes: false,
         });
 
-        // Recording
         const recorder = new MediaRecorder(stream, { mimeType: pickMime() });
         recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
         recorder.start();
@@ -101,7 +105,10 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
         setReady(true);
         loop();
       } catch (e) {
-        setError("Camera/Mic permission denied: " + String(e));
+        setError(
+          "We couldn't reach your camera and microphone. Check that this site is allowed to use them in your browser's site settings, then reload. " +
+          String(e)
+        );
       }
     })();
 
@@ -134,8 +141,12 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   }, []);
 
   // ---- Finish & grade ----
-  async function finishQuestion({transcript, pronScore, grammarScore, feedback, seniority_match}: {transcript: string, pronScore: number, grammarScore: number, feedback: string, seniority_match: string}) {
-    // stop recording, build video URL
+  async function finishQuestion({
+    transcript, pronScore, grammarScore, feedback, seniority_match,
+  }: {
+    transcript: string; pronScore: number; grammarScore: number;
+    feedback: string; seniority_match: string;
+  }) {
     const recorder = recorderRef.current;
     const videoUrl = await new Promise<string | null>((resolve) => {
       if (!recorder || recorder.state === "inactive") return resolve(null);
@@ -146,83 +157,113 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
       recorder.stop();
     });
 
-    // average face score
     const fs = faceSamples.current;
-    const faceScore = fs.length ? Math.round(fs.reduce((a, b) => a + b, 0) / fs.length) : metrics.confidence;
+    const faceScore = fs.length
+      ? Math.round(fs.reduce((a, b) => a + b, 0) / fs.length)
+      : metrics.confidence;
 
     saveResult(q.id, {
       faceScore, grammarScore, pronunciationScore: pronScore || 0,
-      feedback, seniorityMatch: seniority_match as any,
-      transcript: transcript, videoUrl, completed: true,
+      feedback, seniorityMatch: seniority_match as never,
+      transcript, videoUrl, completed: true,
     });
 
-    // next or results
     if (activeQuestion < questions.length - 1) {
-      // reset handled by effect via activeQuestion change (remount of effect)
       router.push("/practice/" + (activeQuestion + 1));
     } else {
       router.push("/results");
     }
   }
-  
-  const triggerRecording = useCallback(() => {
-    if (recorderRef.current) {
-      if (recorderRef.current.state === "recording") {
-        recorderRef.current.pause();
-      } else if (recorderRef.current.state === "paused") {
-        recorderRef.current.resume();
-      }
-    } else {
-      setError("Recorder not initialized");
-    }
-  }, [recorderRef.current]);
 
-  if (!q) return <div className="flex min-h-screen items-center justify-center text-slate-400">No question.</div>;
+  const triggerRecording = useCallback(() => {
+    const rec = recorderRef.current;
+    if (!rec) {
+      setError("The recorder didn't start. Reload the page to try again.");
+      return;
+    }
+    if (rec.state === "recording") {
+      rec.pause();
+      setRecording(false);
+    } else if (rec.state === "paused") {
+      rec.resume();
+      setRecording(true);
+    }
+  }, []);
+
+  if (!q) {
+    return (
+      <PageShell title="That question isn't in this session" lead="Head back and start again.">
+        <Button size="lg" onClick={() => router.push("/")}>Start a session</Button>
+      </PageShell>
+    );
+  }
 
   return (
-    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen px-4 py-8" key={q?.id}>
-      <div className="mx-auto max-w-6xl space-y-6">
-        <Stepper current={activeQuestion} total={questions.length} />
+    <PageShell title="Practice" titleSrOnly width="wide" backHref="/study" backLabel="Study">
+      <div className="space-y-6">
+        <Progress current={activeQuestion} total={questions.length} />
 
-        <h2 className="animate-fade-in text-2xl font-bold">{q.question}</h2>
+        <div className="flex items-start gap-4 sm:gap-6">
+          <span aria-hidden className="stepnum hidden text-5xl font-medium sm:block">
+            {String(activeQuestion + 1).padStart(2, "0")}
+          </span>
+          <h2 className="text-2xl font-medium sm:text-3xl">{q.question}</h2>
+        </div>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        {/* Real mic level, not decoration: flat until you are actually
+            recording, and frozen entirely under prefers-reduced-motion. */}
+        <Waveform stream={streamRef.current} active={recording} bars={44} />
+
+        <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
           {/* LEFT: answer area */}
-          <div className="space-y-6">
-              <Transcription
-                activeQuestion={activeQuestion}
-                setError={setError}
-                transcriptFinished={finishQuestion}
-                stream={streamRef.current}
-                triggerRecording={triggerRecording}
-              />
-			      {error && <p className="rounded-lg bg-amber-500/10 p-3 text-sm text-amber-400">{error}</p>}
-		      </div>
+          <div className="space-y-4">
+            <Transcription
+              activeQuestion={activeQuestion}
+              setError={setError}
+              transcriptFinished={finishQuestion}
+              stream={streamRef.current}
+              triggerRecording={triggerRecording}
+            />
+            {error && <Alert tone="warning" title="Something needs your attention">{error}</Alert>}
+          </div>
 
           {/* RIGHT: camera + gauge */}
           <div className="space-y-4">
-            <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-black">
-              <video ref={videoRef} muted playsInline className="flip-rtl aspect-[4/3] w-full -scale-x-100 object-cover" />
-              {!ready && (
-                <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-                  Initializing camera & AI…
-                </div>
+            <div className="relative overflow-hidden rounded-2xl border border-line bg-black">
+              {/* Mirrored once, here. The old markup applied both `flip-rtl`
+                  and `-scale-x-100`, so in Farsi the two cancelled out and the
+                  preview came back un-mirrored. */}
+              <video
+                ref={videoRef}
+                muted
+                playsInline
+                aria-label="Your camera preview"
+                className="aspect-[4/3] w-full -scale-x-100 object-cover"
+              />
+              {!ready && !error && (
+                <p
+                  role="status"
+                  className="absolute inset-0 flex items-center justify-center bg-black/60 p-4 text-center text-sm text-white"
+                >
+                  Starting your camera…
+                </p>
               )}
-              {recorderRef.current?.state === "recording" &&
-                <div className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/60 px-3 py-1 text-xs">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" /> REC
-                </div>
-              }
+              {recording && (
+                <p className="absolute start-3 top-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
+                  <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-danger" />
+                  Recording
+                </p>
+              )}
             </div>
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-5">
+            <Card pad="sm">
               <ConfidenceGauge m={metrics} />
-            </div>
+            </Card>
           </div>
         </div>
       </div>
-    </main>
+    </PageShell>
   );
-}
+};
 
 function pickMime() {
   const opts = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];

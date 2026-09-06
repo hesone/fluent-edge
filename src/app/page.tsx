@@ -1,10 +1,19 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { LuSparkles } from "react-icons/lu";
 import { useSessionStore, Mode, Seniority, Converstion } from "@/store/useSessionStore";
-import { LANGS, LANG_LEVEL, Lang, LangLevel, isRTL, t } from "@/lib/i18n";
+import { LANGS, LANG_LEVEL, Lang, LangLevel, t } from "@/lib/i18n";
 import PreferredQA from "@/components/PreferredQA";
 import { APP_MODE } from "@/lib/config";
+import Alert from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import ChoiceGroup from "@/components/ui/ChoiceGroup";
+import { TextField } from "@/components/ui/Field";
+import FileDrop from "@/components/ui/FileDrop";
+import PageShell from "@/components/ui/PageShell";
+import Waveform from "@/components/ui/Waveform";
 
 export default function Onboarding() {
   const router = useRouter();
@@ -26,24 +35,21 @@ export default function Onboarding() {
   const [loading, setLoading] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
+  const [resumeError, setResumeError] = useState("");
 
-  const rtl = isRTL(language);
-
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFileName(f.name);
+  async function handleFile(file: File) {
+    setFileName(file.name);
     setParsing(true);
-    setError("");
+    setResumeError("");
     try {
       const fd = new FormData();
-      fd.append("file", f);
+      fd.append("file", file);
       const res = await fetch("/api/parse-resume", { method: "POST", body: fd });
       const data = await res.json();
       if (data.text) setResumeText(data.text);
-      else setError("Could not read PDF text.");
+      else setResumeError("We couldn't find any text in that PDF. If it's a scan, try a text-based version.");
     } catch {
-      setError("Resume parsing failed.");
+      setResumeError("Reading that file failed. Try again, or continue without a résumé.");
     } finally {
       setParsing(false);
     }
@@ -66,7 +72,7 @@ export default function Onboarding() {
         // The route reports which backend it was talking to, so the message can
         // name the thing to go start instead of guessing.
         throw new Error(
-          [data.provider && `via ${data.provider}`, data.detail || "no questions"]
+          [data.provider && `via ${data.provider}`, data.detail || "no questions came back"]
             .filter(Boolean)
             .join(" — ")
         );
@@ -77,155 +83,146 @@ export default function Onboarding() {
     } catch (e) {
       setError(
         APP_MODE === "local"
-          ? "Failed to generate questions. Is Ollama running (ollama serve)? " + String(e)
-          : "Failed to generate questions. Check your OpenRouter key and connection. " + String(e)
+          ? `We couldn't reach your local model. Is Ollama running? Start it with \`ollama serve\`. (${String(e)})`
+          : `We couldn't build your session. Check your OpenRouter key and your connection, then try again. (${String(e)})`
       );
       setLoading(false);
     }
   }
 
   return (
-    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen bg-gradient-to-br from-slate-950 via-brand-900/20 to-slate-950">
-      <div className="mx-auto max-w-2xl px-4 py-12">
-        <header className="mb-10 text-center animate-fade-in">
-          <h1 className="bg-gradient-to-r from-brand-400 to-emerald-400 bg-clip-text text-5xl font-extrabold text-transparent">
-            FluentEdge
-          </h1>
-          <p className="mt-2 text-slate-400">{t(language, "tagline")}</p>
-        </header>
+    <PageShell
+      size="hero"
+      eyebrow="Set up · 30 seconds"
+      title={<>Speak it until it <em className="not-italic text-accent-text">sounds like you.</em></>}
+      lead="Questions written for your level, answered out loud on camera — with a read on pace, grammar and delivery. Nothing is recorded until you press start."
+    >
+      <Waveform className="mb-10" bars={44} />
 
-        <div className="space-y-8 rounded-3xl border border-slate-800 bg-slate-900/50 p-8 shadow-2xl backdrop-blur">
+      <Card pad="lg" className="space-y-8">
+        <ChoiceGroup
+          legend={t(language, "chooseConv")}
+          value={convType}
+          onChange={setConvType}
+          columns={2}
+          options={[
+            {
+              value: "workspace" as Converstion,
+              label: t(language, "workspace"),
+              icon: "💼",
+              description: "Interviews and professional conversation",
+            },
+            {
+              value: "general" as Converstion,
+              label: t(language, "general"),
+              icon: "🌞",
+              description: "Everyday situations and small talk",
+            },
+          ]}
+        />
 
-          {/* Conversation Type */}
-          <section>
-            <label className="mb-2 block font-semibold">{t(language, "chooseConv")}</label>
-            <div className="grid grid-cols-2 gap-3">
-              {([["workspace", "💼", t(language, "workspace")], ["general", "🌞", t(language, "general")]] as const)
-                .map(([m, icon, label]) => (
-                <button key={m} onClick={() => setConvType(m as Converstion)}
-                  className={`rounded-xl border px-4 py-4 text-start transition ${
-                    convType === m ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                  }`}>
-                  <div className="text-2xl">{icon}</div>
-                  <div className="mt-1 font-medium">{label}</div>
-                </button>
-              ))}
-            </div>
-          </section>
+        <PreferredQA tab={convType} language={language} />
 
-          {/* Preferred Q&A — persisted separately for each tab */}
-          <PreferredQA tab={convType} language={language} />
+        <ChoiceGroup
+          legend={t(language, "chooseLanguage")}
+          variant="tile"
+          columns={5}
+          value={language}
+          onChange={setLanguage}
+          options={LANGS.map((l) => ({ value: l.code, label: l.label, icon: l.flag }))}
+        />
 
-          {/* Language */}
-          <section>
-            <label className="mb-2 block font-semibold">{t(language, "chooseLanguage")}</label>
-            <div className="grid grid-cols-5 gap-2">
-              {LANGS.map((l) => (
-                <button key={l.code} onClick={() => setLanguage(l.code)}
-                  className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-3 transition ${
-                    language === l.code ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                  }`}>
-                  <span className="text-2xl">{l.flag}</span>
-                  <span className="text-xs">{l.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
+        {convType === "workspace" && (
+          <>
+            <FileDrop
+              label={t(language, "uploadResume")}
+              hint="Optional — it makes the questions specific to your experience."
+              fileName={fileName}
+              busy={parsing}
+              busyLabel="Reading your PDF…"
+              error={resumeError}
+              status={resumeText ? `Résumé read — ${resumeText.length.toLocaleString()} characters extracted.` : undefined}
+              onFile={handleFile}
+            />
 
-          {convType === 'workspace' &&
-            <>
-              {/* Resume */}
-              <section>
-                <label className="mb-2 block font-semibold">{t(language, "uploadResume")}</label>
-                <label className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-slate-700 bg-slate-800/40 px-6 py-8 transition hover:border-brand-500">
-                  <input type="file" accept="application/pdf" className="hidden" onChange={handleFile} />
-                  <span className="text-3xl">📄</span>
-                  <span className="text-slate-300">
-                    {parsing ? "Reading PDF…" : fileName || "Click to upload PDF"}
-                  </span>
-                </label>
-                {resumeText && <p className="mt-2 text-xs text-emerald-400">✓ Extracted {resumeText.length} chars</p>}
-              </section>
+            <ChoiceGroup
+              legend={t(language, "chooseMode")}
+              value={mode}
+              onChange={setMode}
+              columns={2}
+              options={[
+                {
+                  value: "interview" as Mode,
+                  label: t(language, "interview"),
+                  icon: "🎯",
+                  description: "Questions a hiring panel would actually ask",
+                },
+                {
+                  value: "professional" as Mode,
+                  label: t(language, "professional"),
+                  icon: "💼",
+                  description: "Stand-ups, reviews and everyday work talk",
+                },
+              ]}
+            />
 
-              {/* Mode */}
-              <section>
-                <label className="mb-2 block font-semibold">{t(language, "chooseMode")}</label>
-                <div className="grid grid-cols-2 gap-3">
-                  {([["interview", "🎯", t(language, "interview")], ["professional", "💼", t(language, "professional")]] as const)
-                    .map(([m, icon, label]) => (
-                    <button key={m} onClick={() => setMode(m as Mode)}
-                      className={`rounded-xl border px-4 py-4 text-start transition ${
-                        mode === m ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                      }`}>
-                      <div className="text-2xl">{icon}</div>
-                      <div className="mt-1 font-medium">{label}</div>
-                    </button>
-                  ))}
-                </div>
-              </section>
+            <ChoiceGroup
+              legend={t(language, "chooseSeniority")}
+              variant="compact"
+              columns={3}
+              value={seniority}
+              onChange={setSeniority}
+              options={(["junior", "mid", "senior"] as Seniority[]).map((s) => ({
+                value: s,
+                label: t(language, s),
+              }))}
+            />
+          </>
+        )}
 
-              {/* Seniority */}
-              <section>
-                <label className="mb-2 block font-semibold">{t(language, "chooseSeniority")}</label>
-                <div className="grid grid-cols-3 gap-3">
-                  {(["junior", "mid", "senior"] as Seniority[]).map((s) => (
-                    <button key={s} onClick={() => setSeniority(s)}
-                      className={`rounded-xl border px-4 py-3 capitalize transition ${
-                        seniority === s ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                      }`}>
-                      {t(language, s)}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </>
-          }
+        {convType === "general" && (
+          <>
+            <ChoiceGroup
+              legend={t(language, "chooseLangLevel")}
+              hint="The CEFR level you want the questions pitched at."
+              variant="compact"
+              columns={6}
+              value={langLevel}
+              onChange={setLangLevel}
+              options={(Object.entries(LANG_LEVEL) as [LangLevel, string][]).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
 
-          {convType === 'general' &&
-            <>
-              {/* Language level */}
-              <section>
-                <label className="mb-2 block font-semibold">{t(language, "chooseLangLevel")}</label>
-                <div className="grid grid-cols-6 gap-3">
-                  {(Object.entries(LANG_LEVEL) as [LangLevel, string][]).map(([key, value]) =>
-                    <button key={key} onClick={() => setLangLevel(key)}
-                      className={`rounded-xl border px-2 py-3 capitalize transition ${
-                        langLevel === key ? "border-brand-500 bg-brand-500/20" : "border-slate-700 hover:border-slate-600"
-                      }`}>
-                      {value}
-                    </button>
-                  )}
-                </div>
-              </section>
-            </>
-          }
+            <TextField
+              label={t(language, "situation")}
+              hint="The more specific you are, the better the questions."
+              placeholder={t(language, "situationPlaceholder")}
+              value={situation}
+              onChange={(event) => setSituation(event.target.value)}
+            />
+          </>
+        )}
 
-          {convType === 'general' &&
-            <>
-              {/* Topic */}
-              <section>
-                <label className="mb-2 block font-semibold">{t(language, "situation")}</label>
-                <input
-                type="text"
-                className="rounded-xl border border-slate-700 bg-slate-900/60 p-4 w-full focus:bg-slate-600"
-                placeholder={t(language, "situationPlaceholder")}
-                value={situation}
-                onChange={event => setSituation(event.target.value)}/>
-              </section>
-            </>
-          }
+        {error && <Alert tone="error" title="Couldn't build your session">{error}</Alert>}
 
-          {error && <p className="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">{error}</p>}
-
-          <button
+        <div className="space-y-3 border-t border-line pt-6">
+          <Button
+            size="lg"
+            fullWidth
+            loading={loading}
+            disabled={parsing}
             onClick={handleSubmit}
-            disabled={loading || parsing}
-            className="w-full rounded-2xl bg-gradient-to-r from-brand-600 to-brand-500 py-4 font-semibold text-white shadow-lg transition hover:brightness-110 disabled:opacity-50"
           >
+            {!loading && <LuSparkles aria-hidden className="h-4 w-4" />}
             {loading ? t(language, "generating") : t(language, "generate")}
-          </button>
+          </Button>
+          <p className="text-center text-sm text-fg-muted">
+            You&apos;ll review the questions first — nothing is recorded until you choose to start.
+          </p>
         </div>
-      </div>
-    </main>
+      </Card>
+    </PageShell>
   );
 }

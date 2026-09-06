@@ -2,11 +2,222 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-body { @apply bg-slate-950 text-slate-100 antialiased; }
+/* ---------------------------------------------------------------------------
+   FluentEdge — "Studio" design tokens
+   ---------------------------------------------------------------------------
+   Near-black and acid lime, with the user's own voice as the recurring graphic.
 
-/* RTL adjustments */
+   Two decisions that shape the whole system:
+
+   1. Lime is a SURFACE colour, never a text colour. #C8F751 carries near-black
+      text at 15.3:1 in both themes, so the primary button is literally the same
+      colour in light and dark. What it cannot do is sit on white — lime against
+      the light canvas is 1.14:1, far below the 3:1 a control boundary needs —
+      so the primary button carries a 2px --c-accent-edge border, which is ink
+      in light and lime in dark. Where lime is genuinely needed AS text there is
+      a separate --c-accent-text: the lime itself in dark, a deep olive in light.
+
+   2. Lime doubles as the "strong" score band, so there is no second green.
+      A distinct success green next to an acid-lime accent reads as two
+      unrelated positives; folding them together means hitting the target
+      literally lights up in the brand colour, and leaves only amber and red as
+      additional status hues.
+
+   Every foreground/background pair below is verified at WCAG 2.1 AA — 4.5:1 for
+   body text, 3:1 for large text, UI boundaries and focus rings — in BOTH
+   themes. Re-run the check before changing a value.
+--------------------------------------------------------------------------- */
+
+@layer base {
+  :root {
+    /* Surfaces */
+    --c-canvas:        245 245 241;
+    --c-surface:       255 255 255;
+    --c-surface-2:     235 235 230;
+    --c-border:        224 224 218;   /* hairline, decorative */
+    --c-border-strong: 132 132 124;   /* 3.5:1 on canvas */
+
+    /* Text */
+    --c-fg:            16 16 18;      /* 17.4:1 on canvas */
+    --c-fg-muted:      92 92 96;      /* 6.1:1  on canvas */
+
+    /* Accent */
+    --c-accent:        200 247 81;    /* the lime — a surface, not a text colour */
+    --c-accent-fg:     16 16 18;      /* 15.3:1 on lime */
+    --c-accent-edge:   16 16 18;      /* the border that gives lime a boundary */
+    --c-accent-text:   74 95 11;      /* 6.6:1 — lime's ink-mode sibling */
+    --c-accent-soft:   237 246 210;
+
+    /* Status. Lime covers "strong", so only two more hues are needed. */
+    --c-warning:       122 74 0;
+    --c-warning-soft:  251 240 226;
+    --c-danger:        190 32 24;
+    --c-danger-fg:     255 255 255;   /* 6.2:1 on danger */
+    --c-danger-soft:   252 234 234;
+
+    --c-ring:          16 16 18;
+
+    /* Atmosphere. Kept faint in light mode — grain over a pale ground muddies
+       text far more than it does over near-black. */
+    --glow-a: rgba(200, 247, 81, .30);
+    --glow-b: rgba(90, 216, 232, .16);
+    --grain-opacity: .10;
+    --grain-blend: multiply;
+
+    --shadow-sm: 0 1px 2px 0 rgb(16 16 18 / 0.05);
+    --shadow-md: 0 4px 14px -2px rgb(16 16 18 / 0.10), 0 2px 4px -2px rgb(16 16 18 / 0.06);
+    --shadow-lg: 0 16px 40px -12px rgb(16 16 18 / 0.16), 0 4px 10px -4px rgb(16 16 18 / 0.08);
+
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    --c-canvas:        16 16 18;
+    --c-surface:       26 26 30;
+    --c-surface-2:     34 34 39;
+    --c-border:        46 46 52;
+    --c-border-strong: 107 107 115;   /* 3.6:1 on canvas */
+
+    /* Deliberately not #FFF on #000: pure white on pure black haloes badly for
+       readers with astigmatism. 16.2:1 is plenty. */
+    --c-fg:            237 237 234;
+    --c-fg-muted:      154 154 162;   /* 6.8:1 on canvas */
+
+    --c-accent:        200 247 81;
+    --c-accent-fg:     16 16 18;
+    --c-accent-edge:   200 247 81;    /* fill already gives 15.3:1 here */
+    --c-accent-text:   200 247 81;
+    --c-accent-soft:   30 40 10;
+
+    --c-warning:       255 197 61;
+    --c-warning-soft:  44 33 9;
+    --c-danger:        255 128 128;
+    --c-danger-fg:     46 10 10;      /* 7.4:1 — white here would be 2.1:1 */
+    --c-danger-soft:   46 20 20;
+
+    --c-ring:          200 247 81;
+
+    --glow-a: rgba(200, 247, 81, .16);
+    --glow-b: rgba(90, 216, 232, .10);
+    --grain-opacity: .30;
+    --grain-blend: overlay;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
+    --shadow-md: 0 6px 18px -4px rgb(0 0 0 / 0.6), 0 2px 6px -2px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 24px 60px -24px rgb(0 0 0 / 0.85), 0 6px 14px -6px rgb(0 0 0 / 0.5);
+
+    color-scheme: dark;
+  }
+}
+
+@layer base {
+  * { @apply border-line; }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* The canvas lives on <html> so the fixed atmosphere layer can paint above
+       it while still sitting behind all content. */
+    background-color: rgb(var(--c-canvas));
+  }
+
+  body {
+    @apply text-fg antialiased;
+    background: transparent;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Display face for headings; the body face stays neutral and readable.
+     Space Grotesk has no Arabic coverage, so Farsi headings fall back to
+     Vazirmatn rather than to a random system serif. */
+  h1, h2, h3 {
+    font-family: var(--font-display), var(--font-sans), ui-sans-serif, sans-serif;
+    letter-spacing: -0.035em;
+    @apply text-balance;
+  }
+  :root[lang^="fa"] h1,
+  :root[lang^="fa"] h2,
+  :root[lang^="fa"] h3 {
+    font-family: var(--font-arabic), var(--font-sans), sans-serif;
+    letter-spacing: normal;
+  }
+
+  /* One focus style for the whole app. The offset is painted in the canvas
+     colour, so the ring never sits directly on the lime button — where a lime
+     ring would otherwise be invisible against a lime fill. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-focus ring-offset-2 ring-offset-canvas rounded-[inherit];
+  }
+
+  [lang="fa"], [dir="rtl"] { font-size: 1.04em; line-height: 1.85; }
+}
+
+@layer components {
+  /* Atmosphere: a lime/cyan glow and a film grain, both fixed, both behind
+     everything, neither able to intercept a click. This is what stops the dark
+     theme reading as flat charcoal. */
+  .app-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+  }
+  .app-bg::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(60rem 40rem at 8% -8%, var(--glow-a), transparent 70%),
+      radial-gradient(50rem 36rem at 102% 12%, var(--glow-b), transparent 70%);
+  }
+  .app-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: var(--grain-blend);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/><feColorMatrix type='saturate' values='0'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.55'/></svg>");
+  }
+
+  /* Studio signatures, available to any page. */
+  .eyebrow {
+    @apply text-2xs font-semibold uppercase text-accent-text;
+    letter-spacing: 0.2em;
+  }
+  .stepnum {
+    font-family: var(--font-display), sans-serif;
+    color: transparent;
+    -webkit-text-stroke: 1.5px rgb(var(--c-border-strong));
+    letter-spacing: -0.05em;
+    line-height: 0.8;
+  }
+
+  .sr-only-focusable { @apply sr-only; }
+  .sr-only-focusable:focus-visible {
+    @apply not-sr-only fixed left-4 top-4 z-[100] rounded-lg border-2 border-accent-edge
+           bg-accent px-4 py-2 font-semibold text-accent-fg shadow-lg;
+  }
+}
+
+/* RTL: mirror only what should mirror. The camera preview is mirrored once, in
+   the component — stacking two flips cancelled them out. */
 [dir="rtl"] .flip-rtl { transform: scaleX(-1); }
 
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-thumb { @apply rounded bg-slate-700; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgb(var(--c-canvas)); }
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-border-strong) / 0.55);
+  border-radius: 9999px;
+  border: 2px solid rgb(var(--c-canvas));
+}
+::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-border-strong)); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

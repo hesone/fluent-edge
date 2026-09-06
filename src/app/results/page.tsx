@@ -1,95 +1,127 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useSessionStore } from "@/store/useSessionStore";
-import { isRTL, t } from "@/lib/i18n";
+import { LuPlay, LuRotateCcw } from "react-icons/lu";
+import { useSessionStore, type QuestionResult } from "@/store/useSessionStore";
+import { Lang, t } from "@/lib/i18n";
 import { fireCardConfetti, FullPageConfetti } from "@/components/Confetti";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
+import Dialog from "@/components/ui/Dialog";
+import PageShell from "@/components/ui/PageShell";
+import ScoreTile from "@/components/ui/ScoreTile";
 
 export default function Results() {
   const router = useRouter();
   const { questions, results, language, reset } = useSessionStore();
-  const rtl = isRTL(language);
   const [replay, setReplay] = useState<number | null>(null);
 
   const allPerfect = useMemo(
-    () => questions.length > 0 && questions.every((q) => {
-      const r = results[q.id];
-      return r && r.faceScore === 100 && r.grammarScore === 100;
-    }),
+    () =>
+      questions.length > 0 &&
+      questions.every((q) => {
+        const r = results[q.id];
+        return r && r.faceScore === 100 && r.grammarScore === 100;
+      }),
     [questions, results]
   );
 
   if (!questions.length) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-        <p className="text-slate-400">No results yet.</p>
-        <button onClick={() => router.push("/")} className="rounded-xl bg-brand-600 px-6 py-3">Start</button>
-      </div>
+      <PageShell title="No results yet" lead="Finish a practice session and your scores will appear here.">
+        <Button size="lg" onClick={() => router.push("/")}>Start a session</Button>
+      </PageShell>
     );
   }
 
-  return (
-    <main dir={rtl ? "rtl" : "ltr"} className="min-h-screen px-4 py-10">
-      {allPerfect && <FullPageConfetti />}
-      <div className="mx-auto max-w-4xl space-y-8">
-        <header className="text-center">
-          <h1 className="bg-gradient-to-r from-brand-400 to-emerald-400 bg-clip-text text-4xl font-extrabold text-transparent">
-            {t(language, "yourScores")}
-          </h1>
-          {allPerfect && (
-            <p className="mt-3 animate-pop text-xl font-semibold text-emerald-400">
-              🏆 {t(language, "allPerfect")}
-            </p>
-          )}
-        </header>
+  const replayResult = replay !== null ? results[replay] : undefined;
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          {questions.map((q) => {
-            const r = results[q.id];
-            return (
+  return (
+    <PageShell size="hero" eyebrow="Session complete" title={t(language, "yourScores")} width="wide" backHref="/" backLabel="Set-up">
+      {allPerfect && <FullPageConfetti />}
+
+      <div className="space-y-8">
+        {allPerfect && (
+          <p role="status" className="animate-pop text-center text-xl font-semibold text-accent-text">
+            🏆 {t(language, "allPerfect")}
+          </p>
+        )}
+
+        <ul className="grid gap-5 sm:grid-cols-2">
+          {questions.map((q, i) => (
+            <li key={q.id}>
               <ResultCard
-                key={q.id}
-                index={q.id}
+                index={i + 1}
                 question={q.question}
-                result={r}
+                result={results[q.id]}
                 language={language}
                 onReplay={() => setReplay(q.id)}
-                onPracticeAgain={() => {
-                  router.push("/practice/" + questions.findIndex((x) => x.id === q.id));
-                }}
+                onPracticeAgain={() =>
+                  router.push("/practice/" + questions.findIndex((x) => x.id === q.id))
+                }
               />
-            );
-          })}
-        </div>
+            </li>
+          ))}
+        </ul>
 
-        <button onClick={() => { reset(); router.push("/"); }}
-          className="mx-auto block rounded-xl border border-slate-700 px-6 py-3 text-slate-300 hover:bg-slate-800">
-          Start a new session
-        </button>
+        <div className="flex justify-center">
+          <Button variant="secondary" onClick={() => { reset(); router.push("/"); }}>
+            Start a new session
+          </Button>
+        </div>
       </div>
 
-      {replay !== null && (
-        <ReplayModal
-          url={results[replay]?.videoUrl ?? null}
-          result={results[replay]}
-          language={language}
-          onClose={() => setReplay(null)}
-        />
-      )}
-    </main>
+      <Dialog
+        open={replay !== null}
+        onClose={() => setReplay(null)}
+        title="Replay with scores"
+      >
+        <div className="space-y-4">
+          {replayResult?.videoUrl ? (
+            <video
+              src={replayResult.videoUrl}
+              controls
+              autoPlay
+              className="w-full rounded-xl -scale-x-100"
+            />
+          ) : (
+            <p className="text-fg-muted">That recording is no longer available.</p>
+          )}
+          <div className="grid grid-cols-3 gap-3">
+            <ScoreTile label={t(language, "faceScore")} value={replayResult?.faceScore ?? 0} />
+            <ScoreTile label={t(language, "grammarScore")} value={replayResult?.grammarScore ?? 0} />
+            <ScoreTile
+              label={t(language, "combined")}
+              value={Math.round(((replayResult?.faceScore ?? 0) + (replayResult?.grammarScore ?? 0)) / 2)}
+              emphasis
+            />
+          </div>
+        </div>
+      </Dialog>
+    </PageShell>
   );
 }
 
 function ResultCard({
   index, question, result, language, onReplay, onPracticeAgain,
-}: any) {
+}: {
+  index: number;
+  question: string;
+  result?: QuestionResult;
+  language: Lang;
+  onReplay: () => void;
+  onPracticeAgain: () => void;
+}) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const perfect = result && result.faceScore === 100 && result.grammarScore === 100;
+  const perfect = !!result && result.faceScore === 100 && result.grammarScore === 100;
 
   useEffect(() => {
     if (perfect && cardRef.current) {
       const r = cardRef.current.getBoundingClientRect();
-      fireCardConfetti({ x: (r.left + r.width / 2) / window.innerWidth, y: (r.top + r.height / 2) / window.innerHeight });
+      fireCardConfetti({
+        x: (r.left + r.width / 2) / window.innerWidth,
+        y: (r.top + r.height / 2) / window.innerHeight,
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -97,69 +129,63 @@ function ResultCard({
   const combined = result ? Math.round((result.faceScore + result.grammarScore) / 2) : 0;
 
   return (
-    <div ref={cardRef}
-      className={`relative overflow-hidden rounded-3xl border p-5 transition ${
-        perfect ? "border-emerald-500 bg-emerald-500/10 shadow-[0_0_30px_rgba(34,197,94,0.3)]" : "border-slate-800 bg-slate-900/50"
-      }`}>
-      {perfect && <div className="absolute right-3 top-3 animate-pop text-2xl">🎉</div>}
-      <div className="mb-1 text-xs font-medium text-brand-400">Question {index}</div>
-      <p className="mb-4 line-clamp-2 font-medium">{question}</p>
+    <Card
+      ref={cardRef}
+      tone={perfect ? "accent" : "default"}
+      pad="sm"
+      className="relative h-full"
+    >
+      {perfect && (
+        <span aria-hidden className="absolute end-3 top-3 animate-pop text-2xl">🎉</span>
+      )}
+      <p className="eyebrow">
+        Question {index}
+        {perfect && <span className="sr-only"> — full marks</span>}
+      </p>
+      <h2 className="mb-4 mt-1 line-clamp-2 font-semibold">{question}</h2>
 
       {result?.videoUrl ? (
-        <video src={result.videoUrl} className="mb-4 aspect-video w-full rounded-xl object-cover -scale-x-100" muted />
+        <video
+          src={result.videoUrl}
+          muted
+          aria-label={`Recording of your answer to question ${index}`}
+          className="mb-4 aspect-video w-full rounded-xl object-cover -scale-x-100"
+        />
       ) : (
-        <div className="mb-4 flex aspect-video w-full items-center justify-center rounded-xl bg-slate-800 text-slate-500">
+        <div className="mb-4 flex aspect-video w-full items-center justify-center rounded-xl bg-surface-2 text-sm text-fg-muted">
           No recording
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Score label={t(language, "faceScore")} v={result?.faceScore ?? 0} />
-        <Score label={t(language, "grammarScore")} v={result?.grammarScore ?? 0} />
-        <Score label={t(language, "combined")} v={combined} bold />
+      <div className="grid grid-cols-3 gap-2">
+        <ScoreTile label={t(language, "faceScore")} value={result?.faceScore ?? 0} />
+        <ScoreTile label={t(language, "grammarScore")} value={result?.grammarScore ?? 0} />
+        <ScoreTile label={t(language, "combined")} value={combined} emphasis />
       </div>
 
-      {result?.feedback && <p className="mt-3 text-xs text-slate-400">💬 {result.feedback}</p>}
+      {result?.feedback && (
+        <p className="mt-3 text-sm text-fg-muted">
+          <span className="font-semibold text-fg">Feedback: </span>
+          {result.feedback}
+        </p>
+      )}
 
       <div className="mt-4 flex gap-2">
-        <button onClick={onReplay} disabled={!result?.videoUrl}
-          className="flex-1 rounded-xl bg-slate-800 py-2 text-sm hover:bg-slate-700 disabled:opacity-40">
-          ▶ {t(language, "replay")}
-        </button>
-        <button onClick={onPracticeAgain}
-          className="flex-1 rounded-xl bg-brand-600 py-2 text-sm hover:bg-brand-500">
-          🔁 {t(language, "practiceAgain")}
-        </button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="flex-1"
+          onClick={onReplay}
+          disabled={!result?.videoUrl}
+        >
+          <LuPlay aria-hidden className="h-4 w-4" />
+          {t(language, "replay")}
+        </Button>
+        <Button size="sm" className="flex-1" onClick={onPracticeAgain}>
+          <LuRotateCcw aria-hidden className="h-4 w-4" />
+          {t(language, "practiceAgain")}
+        </Button>
       </div>
-    </div>
-  );
-}
-
-function Score({ label, v, bold }: { label: string; v: number; bold?: boolean }) {
-  const color = v >= 80 ? "text-emerald-400" : v >= 50 ? "text-amber-400" : "text-red-400";
-  return (
-    <div className="rounded-xl bg-slate-800/60 py-2">
-      <div className={`${bold ? "text-2xl" : "text-xl"} font-bold ${color}`}>{v}</div>
-      <div className="text-[10px] uppercase text-slate-500">{label}</div>
-    </div>
-  );
-}
-
-function ReplayModal({ url, result, language, onClose }: any) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
-      <div className="relative w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-6" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onClose} className="absolute right-4 top-4 text-slate-400 hover:text-white">✕</button>
-        <h3 className="mb-4 text-lg font-semibold">Replay with scores</h3>
-        {url ? (
-          <video src={url} controls autoPlay className="w-full rounded-xl -scale-x-100" />
-        ) : <p className="text-slate-400">Recording unavailable.</p>}
-        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-          <Score label={t(language, "faceScore")} v={result?.faceScore ?? 0} />
-          <Score label={t(language, "grammarScore")} v={result?.grammarScore ?? 0} />
-          <Score label={t(language, "combined")} v={Math.round(((result?.faceScore ?? 0) + (result?.grammarScore ?? 0)) / 2)} bold />
-        </div>
-      </div>
-    </div>
+    </Card>
   );
 }

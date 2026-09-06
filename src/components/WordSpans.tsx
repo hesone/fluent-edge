@@ -15,19 +15,33 @@ export default function WordSpans({
     <p className="flex flex-wrap gap-x-2 gap-y-1 text-2xl leading-relaxed">
       {words.map((w, i) => {
         const st = states[i] ?? "pending";
+
         if (karaokeMode) {
-          // show only correctly spoken words; mask the rest
+          // Show only correctly spoken words; mask the rest.
           return (
-            <span key={i} className={st === "correct" ? "text-green-400 animate-pop font-semibold" : "select-none text-slate-700"}>
+            <span
+              key={i}
+              className={st === "correct"
+                ? "animate-pop font-semibold text-accent-text"
+                : "select-none text-fg-muted/50"}
+            >
               {st === "correct" ? w : "•".repeat(Math.max(2, normalizeWord(w).length))}
             </span>
           );
         }
+
+        // Colour alone can't carry these states (WCAG 1.4.1): a correct word
+        // also gains weight, and a mispronounced one keeps the wavy underline.
         const cls =
-          st === "correct" ? "text-green-400 font-semibold"
-          : st === "wrong" ? "text-red-400 underline decoration-wavy"
-          : "text-slate-400";
-        return <span key={i} className={`transition-colors duration-200 ${cls}`}>{w}</span>;
+          st === "correct" ? "font-semibold text-accent-text"
+          : st === "wrong" ? "font-semibold text-danger underline decoration-wavy decoration-2 underline-offset-4"
+          : "text-fg-muted";
+
+        return (
+          <span key={i} className={`transition-colors duration-fast ${cls}`}>
+            {w}
+          </span>
+        );
       })}
     </p>
   );

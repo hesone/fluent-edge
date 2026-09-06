@@ -1,21 +1,27 @@
 "use client";
-
 import { t } from "@/lib/i18n";
 import { useSessionStore } from "@/store/useSessionStore";
 
 export default function LiveTranscript({ text, isStop }: { text: string; isStop: boolean }) {
-	const { language } = useSessionStore();
+  const { language } = useSessionStore();
 
   return (
-    <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-4">
-      <div className="mb-1 flex items-center gap-2 text-xs uppercase tracking-wider text-slate-400">
-        <span className="relative flex h-2 w-2">
-          <span className={"absolute h-2 w-2 animate-ping rounded-full opacity-75 " + (isStop ? "" : "bg-red-500")} />
-          <span className={"h-2 w-2 rounded-full " + (isStop ? "bg-slate-800" : "bg-red-500")} />
+    <div className="rounded-xl border border-line bg-surface-2 p-4">
+      <p className="mb-2 flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-fg-muted">
+        <span aria-hidden className="relative flex h-2 w-2">
+          {!isStop && (
+            <span className="absolute h-2 w-2 animate-ping rounded-full bg-danger opacity-75" />
+          )}
+          <span className={`h-2 w-2 rounded-full ${isStop ? "bg-line-strong" : "bg-danger"}`} />
         </span>
         {isStop ? t(language, "stopped") : t(language, "liveTranscript")}
-      </div>
-      <p className="min-h-[3rem] text-slate-200 max-h-48 overflow-y-auto">{text || <span className="text-slate-600">Listening…</span>}</p>
+      </p>
+      {/* The transcript updates constantly while speaking; `aria-live="off"`
+          keeps a screen reader from reading every partial result back over the
+          user as they talk. */}
+      <p aria-live="off" className="max-h-48 min-h-[3rem] overflow-y-auto leading-relaxed">
+        {text || <span className="text-fg-muted">Listening…</span>}
+      </p>
     </div>
   );
 }

@@ -1,9 +1,14 @@
+"use client";
 import { t, LangLevel } from "@/lib/i18n";
 import { matchTranscript, pronunciationScore, WordState } from "@/lib/pronunciation";
 import { createSTT, type STTAdapter } from "@/lib/stt";
 import { MEDIA_WS_URL, type STTProvider } from "@/lib/config";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useEffect, useRef, useState } from "react";
+import { LuMic, LuMicOff } from "react-icons/lu";
+import Alert from "@/components/ui/Alert";
+import Button from "@/components/ui/Button";
+import Card from "@/components/ui/Card";
 import LiveTranscript from "./LiveTranscript";
 import WordSpans from "./WordSpans";
 
@@ -206,83 +211,102 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 		transcriptFinished({ transcript: transcriptRef.current || transcript, pronScore: pron, grammarScore, feedback, seniority_match });
   }
 
+  const phaseHint = allGreen
+    ? "Now say the whole answer from memory."
+    : "Read the answer aloud — each word is marked as you get it right.";
+
   return (
     <>
-			<div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6">
-				<div className="mb-3 flex items-center justify-between">
-					<span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
-						{allGreen ? "From Memory 🧠" : t(language, "idealAnswer")}
-					</span>
-					<div	className="flex items-center gap-2 text-xs text-slate-400 h-1">
-						{sttProvider && (
-							<span
-								title={sttProvider === "whisper"
-									? `whisper.cpp via the local media server (${MEDIA_WS_URL})`
-									: "Web Speech API — recognition happens in your browser"}
-								className="rounded bg-slate-800/80 px-2 py-0.5 text-[10px] uppercase tracking-wider text-slate-500">
-								{sttProvider === "whisper" ? "local" : "online"}
-							</span>
-						)}
-						{allGreen && !memoryDone && (
-							<button onClick={() => setShowHint((s) => !s)}
-								className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700">
-								{showHint ? "Hide hint" : t(language, "showHint")}
-							</button>
-						)}
-						
-						{recording && !memoryDone &&
-							<button onClick={triggerTranscription} disabled={!sttReady}
-											className="rounded-lg bg-slate-800 px-3 py-1 text-xs hover:bg-slate-700 disabled:opacity-40">
-								{recording ? t(language, "stopRecording") : t(language, "startRecording")}
-							</button>
-						}
-					</div>
-				</div>
+      <Card pad="md">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="eyebrow">
+            {allGreen ? "From memory 🧠" : t(language, "idealAnswer")}
+          </h3>
+          <div className="flex items-center gap-2">
+            {sttProvider && (
+              <span
+                title={sttProvider === "whisper"
+                  ? `whisper.cpp via the local media server (${MEDIA_WS_URL})`
+                  : "Web Speech API — recognition happens in your browser"}
+                className="rounded bg-surface-2 px-2 py-1 text-2xs font-semibold uppercase tracking-wider text-fg-muted"
+              >
+                {sttProvider === "whisper" ? "local" : "online"}
+              </span>
+            )}
+            {allGreen && !memoryDone && (
+              <Button variant="secondary" size="sm" onClick={() => setShowHint((s) => !s)}>
+                {showHint ? "Hide hint" : t(language, "showHint")}
+              </Button>
+            )}
+          </div>
+        </div>
 
-				{/* Phase 1: read-and-pronounce; Phase 2: karaoke from memory */}
-				{(!allGreen || showHint) && (
-					<WordSpans
-						words={words}
-						states={showHint && allGreen ? words.map(() => "pending") : states}
-						hidden={false}
-						karaokeMode={false} />
-				)}
-				{allGreen && !showHint && (
-					<WordSpans words={words} states={states} hidden={false} karaokeMode />
-				)}
+        {/* Phase 1: read-and-pronounce; Phase 2: karaoke from memory */}
+        {(!allGreen || showHint) && (
+          <WordSpans
+            words={words}
+            states={showHint && allGreen ? words.map(() => "pending") : states}
+            hidden={false}
+            karaokeMode={false}
+          />
+        )}
+        {allGreen && !showHint && (
+          <WordSpans words={words} states={states} hidden={false} karaokeMode />
+        )}
 
-				{memoryDone && (
-					<div className="mt-6 animate-fade-in rounded-2xl bg-emerald-500/10 p-4 text-emerald-300">
-						✓ Excellent! You recited the full answer.
-					</div>
-				)}
+        {/* One polite live region for phase changes, rather than announcing
+            every word as it is matched. */}
+        <p role="status" aria-live="polite" className="sr-only">
+          {memoryDone
+            ? "You recited the full answer."
+            : allGreen
+              ? "Reading complete. Now say the whole answer from memory."
+              : ""}
+        </p>
 
-				{!recording && !memoryDone &&
-					<button onClick={triggerTranscription} disabled={!sttReady}
-									className="rounded-lg bg-emerald-600 px-3 py-4 mt-4 text-xs hover:bg-emerald-500 w-full disabled:opacity-40">
-								{t(language, "startRecording")}
-					</button>
-				}
-			</div>
+        {memoryDone && (
+          <Alert tone="success" className="mt-6" title="Excellent — you recited the full answer.">
+            Score it below, or move on.
+          </Alert>
+        )}
 
-			<LiveTranscript text={transcript.slice(-500)} isStop={!recording} />
+        {!memoryDone && (
+          <Button
+            fullWidth
+            size="lg"
+            variant={recording ? "danger" : "primary"}
+            className="mt-5"
+            disabled={!sttReady}
+            onClick={triggerTranscription}
+          >
+            {recording ? <LuMicOff aria-hidden className="h-4 w-4" /> : <LuMic aria-hidden className="h-4 w-4" />}
+            {recording ? t(language, "stopRecording") : t(language, "startRecording")}
+          </Button>
+        )}
+      </Card>
 
-			<div className="flex gap-3">
-				{memoryDone ? (
-					<button onClick={onFinished} disabled={grading}
-						className="flex-1 rounded-2xl bg-gradient-to-r from-emerald-600 to-emerald-500 py-4 font-semibold transition hover:brightness-110 disabled:opacity-50">
-						{grading ? "Scoring…" : activeQuestion < questions.length - 1 ? t(language, "nextQuestion") : "Finish & See Results"}
-					</button>
-				) : (
-					<div className="flex-1 rounded-2xl border border-slate-800 bg-slate-900/40 py-4 text-center text-slate-400">
-						{allGreen ? "🎤 Now say the full answer from memory…" : "🎤 Read the answer aloud — words turn green as you nail them."}
-					</div>
-				)}
-				{!memoryDone && <button onClick={onFinished} disabled={grading}
-					className="rounded-2xl border border-slate-700 px-5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50">
-					{grading ? t(language, "scoring") : t(language, "skipQuestion")}
-				</button>}
-			</div>
-		</>
+      <LiveTranscript text={transcript.slice(-500)} isStop={!recording} />
+
+      <div className="flex flex-wrap gap-3">
+        {memoryDone ? (
+          <Button size="lg" className="flex-1" loading={grading} onClick={onFinished}>
+            {grading
+              ? t(language, "scoring")
+              : activeQuestion < questions.length - 1
+                ? t(language, "nextQuestion")
+                : "Finish and see results"}
+          </Button>
+        ) : (
+          <p className="flex flex-1 items-center justify-center rounded-xl border border-line bg-surface-2 px-4 py-3 text-center text-sm text-fg-muted">
+            {phaseHint}
+          </p>
+        )}
+        {!memoryDone && (
+          <Button variant="secondary" size="lg" loading={grading} onClick={onFinished}>
+            {grading ? t(language, "scoring") : t(language, "skipQuestion")}
+          </Button>
+        )}
+      </div>
+    </>
   );
 }
