@@ -7,6 +7,15 @@ export interface WaveformProps {
   /** Drives the idle vs listening appearance. */
   active?: boolean;
   bars?: number;
+  /**
+   * "center" mirrors each bar around a centre line, which is how an audio meter
+   * is normally drawn and what makes it legible at small heights. "bottom"
+   * anchors bars to the baseline, for use as a block element on a page.
+   */
+  align?: "center" | "bottom";
+  /** Fixed colours, for use over video where theme tokens don't apply. */
+  tone?: { active: string; idle: string };
+  height?: string;
   className?: string;
 }
 
@@ -26,7 +35,8 @@ export interface WaveformProps {
  *    the button label and the status region, not from 48 animated bars.
  */
 export default function Waveform({
-  stream = null, active = false, bars = 48, className = "",
+  stream = null, active = false, bars = 44, align = "bottom",
+  tone, height, className = "",
 }: WaveformProps) {
   // The resting silhouette: a fixed, deterministic shape rather than a flat
   // line, so an idle waveform still reads as a waveform instead of a dashed
@@ -108,18 +118,24 @@ export default function Waveform({
     return () => cancelAnimationFrame(rafRef.current);
   }, [stream, active, bars]);
 
+  const anchor = align === "center" ? "items-center" : "items-end";
+
   return (
     <div
       aria-hidden
-      className={`flex items-center gap-[3px] ${className}`}
-      style={{ height: "4rem" }}
+      className={`flex ${anchor} gap-[2px] ${className}`}
+      style={{ height: height ?? "4rem" }}
     >
       {levels.map((v, i) => (
         <span
           key={i}
           className={`flex-1 rounded-full transition-[height,background-color] duration-100 ease-out
-            ${active ? "bg-accent" : "bg-line-strong"}`}
-          style={{ height: `${Math.round(v * 100)}%`, minHeight: 4 }}
+            ${tone ? "" : active ? "bg-accent" : "bg-line-strong"}`}
+          style={{
+            height: `${Math.round(v * 100)}%`,
+            minHeight: align === "center" ? 3 : 4,
+            background: tone ? (active ? tone.active : tone.idle) : undefined,
+          }}
         />
       ))}
     </div>

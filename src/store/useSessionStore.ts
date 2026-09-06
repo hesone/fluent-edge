@@ -33,9 +33,7 @@ export interface QuestionResult {
 }
 
 interface SessionState {
-  // Device readiness — set by the pre-flight check so the camera never starts
-  // unannounced, and so the chosen devices are reused for every question.
-  devicesReady: boolean;
+  // Devices chosen in the (optional) camera/mic check, reused for every question.
   videoDeviceId: string;
   audioDeviceId: string;
 
@@ -52,7 +50,7 @@ interface SessionState {
   // Preferred Q&A kept separately per conversation tab
   preferredQA: Record<Converstion, PreferredQA[]>;
 
-  setDevices: (d: Partial<Pick<SessionState, "devicesReady" | "videoDeviceId" | "audioDeviceId">>) => void;
+  setDevices: (d: Partial<Pick<SessionState, "videoDeviceId" | "audioDeviceId">>) => void;
   setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "topic" | "seniority" | "convType" | "langLevel" | "situation">>) => void;
   addPreferredQA: (tab: Converstion, question: string, answer: string) => void;
   updatePreferredQA: (tab: Converstion, id: number, d: Partial<Pick<PreferredQA, "question" | "answer">>) => void;
@@ -71,7 +69,6 @@ const emptyResult = (): QuestionResult => ({
 export const useSessionStore = create<SessionState>()(
   persist(
     (set, get) => ({
-      devicesReady: false,
       videoDeviceId: "",
       audioDeviceId: "",
 
@@ -134,7 +131,7 @@ export const useSessionStore = create<SessionState>()(
         merged.combinedScore = Math.round((merged.faceScore + merged.grammarScore) / 2);
         set({ results: { ...get().results, [id]: merged } });
       },
-      reset: () => set({ resumeText: "", questions: [], results: {}, devicesReady: false }),
+      reset: () => set({ resumeText: "", questions: [], results: {} }),
     }),
     {
       name: "fluentedge-session",

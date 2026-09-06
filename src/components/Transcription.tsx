@@ -5,10 +5,10 @@ import { createSTT, type STTAdapter } from "@/lib/stt";
 import { MEDIA_WS_URL, type STTProvider } from "@/lib/config";
 import { useSessionStore } from "@/store/useSessionStore";
 import { useEffect, useRef, useState } from "react";
-import { LuMic, LuMicOff } from "react-icons/lu";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import RecordButton from "@/components/ui/RecordButton";
 import LiveTranscript from "./LiveTranscript";
 import WordSpans from "./WordSpans";
 
@@ -18,6 +18,8 @@ type TranscriptionProps = {
 	transcriptFinished: (result: {transcript: string, pronScore: number, grammarScore: number, feedback: string, seniority_match: string}) => void;
 	stream: MediaStream | null;
 	triggerRecording: () => void;
+	/** Camera or mic unavailable: there is nothing to score, so block progress. */
+	blocked?: boolean;
 };
 
 // How much of the answer must be correct to move to memory phase, per CEFR
@@ -52,7 +54,7 @@ function startFailureMessage(provider: STTProvider): string {
 		: "Couldn't start speech recognition — check the microphone permission. Face scoring still works.";
 }
 
-export default function Transcription({ activeQuestion, setError, transcriptFinished, stream, triggerRecording }: TranscriptionProps) {
+export default function Transcription({ activeQuestion, setError, transcriptFinished, stream, triggerRecording, blocked = false }: TranscriptionProps) {
   const sttRef = useRef<STTAdapter | null>(null);
 	const transcriptRef = useRef("");
 
@@ -265,38 +267,6 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
           </div>
         </div>
 
-        {!memoryDone && states.length > 0 && (
-          <div className="mb-4">
-            <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-              <span className="font-medium">
-                {matched} of {states.length} words matched
-              </span>
-              <span className="text-fg-muted">
-                need {Math.round(threshold * 100)}%
-              </span>
-            </div>
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(matchPct * 100)}
-              aria-label={`Match accuracy — ${Math.round(matchPct * 100)} percent of ${Math.round(threshold * 100)} percent needed`}
-              className="relative h-2 overflow-hidden rounded-full bg-surface-2"
-            >
-              <div
-                className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-                style={{ width: `${Math.round(matchPct * 100)}%` }}
-              />
-              {/* The bar alone can't show where the bar is: mark the target. */}
-              <span
-                aria-hidden
-                className="absolute top-0 h-full w-0.5 bg-fg"
-                style={{ insetInlineStart: `${Math.round(threshold * 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
-
         {lastMiss && (
           <Alert tone="warning" className="mb-4" title="Not quite — starting that passage again">
             You matched {Math.round(lastMiss.got * 100)}% of the words and need{" "}
@@ -334,17 +304,15 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
         )}
 
         {!memoryDone && (
-          <Button
-            fullWidth
-            size="lg"
-            variant={recording ? "danger" : "primary"}
+          <RecordButton
             className="mt-5"
-            disabled={!sttReady}
+            recording={recording}
+            disabled={!sttReady || blocked}
+            matched={matched}
+            total={states.length}
+            threshold={threshold}
             onClick={triggerTranscription}
-          >
-            {recording ? <LuMicOff aria-hidden className="h-4 w-4" /> : <LuMic aria-hidden className="h-4 w-4" />}
-            {recording ? t(language, "stopRecording") : t(language, "startRecording")}
-          </Button>
+          />
         )}
       </Card>
 
@@ -352,7 +320,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 
       <div className="flex flex-wrap gap-3">
         {memoryDone ? (
-          <Button size="lg" className="flex-1" loading={grading} onClick={onFinished}>
+          <Button size="lg" className="flex-1" loading={grading} disabled={blocked} onClick={onFinished}>
             {grading
               ? t(language, "scoring")
               : activeQuestion < questions.length - 1
@@ -361,11 +329,11 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
           </Button>
         ) : (
           <p className="flex flex-1 items-center justify-center rounded-xl border border-line bg-surface-2 px-4 py-3 text-center text-sm text-fg-muted">
-            {phaseHint}
+            {blocked ? "Allow your camera and microphone to continue." : phaseHint}
           </p>
         )}
         {!memoryDone && (
-          <Button variant="secondary" size="lg" loading={grading} onClick={onFinished}>
+          <Button variant="secondary" size="lg" loading={grading} disabled={blocked} onClick={onFinished}>
             {grading ? t(language, "scoring") : t(language, "skipQuestion")}
           </Button>
         )}

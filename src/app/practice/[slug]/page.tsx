@@ -14,7 +14,8 @@ import Card from "@/components/ui/Card";
 import PageShell from "@/components/ui/PageShell";
 import Progress from "@/components/ui/Progress";
 import Waveform from "@/components/ui/Waveform";
-import ReadyCheck from "@/components/ReadyCheck";
+import DeviceCheckDialog from "@/components/DeviceCheckDialog";
+import { LuSettings2 } from "react-icons/lu";
 
 const emptyMetrics: FaceMetrics = {
   confidence: 50, eyeContact: 50, nervousness: 30, engagement: 50, headStability: 70,
@@ -43,22 +44,7 @@ export default function Practice({ params }: { params: Promise<{ slug: string }>
     );
   }
 
-  return <PracticeGate activeQuestion={Number(activeQuestion)} />;
-}
-
-/**
- * Nothing touches the camera until the pre-flight check has been passed once
- * per session. Mounting PracticeContent is what starts the hardware, so the
- * gate has to sit above it rather than inside it.
- */
-function PracticeGate({ activeQuestion }: { activeQuestion: number }) {
-  const devicesReady = useSessionStore((s) => s.devicesReady);
-  const setDevices = useSessionStore((s) => s.setDevices);
-
-  if (!devicesReady) {
-    return <ReadyCheck onReady={() => setDevices({ devicesReady: true })} />;
-  }
-  return <PracticeContent activeQuestion={activeQuestion} />;
+  return <PracticeContent activeQuestion={Number(activeQuestion)} />;
 }
 
 const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
@@ -84,6 +70,8 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   const [fatal, setFatal] = useState("");            // no camera/mic: nothing works
   const [faceUnavailable, setFaceUnavailable] = useState("");
   const [recorderUnavailable, setRecorderUnavailable] = useState("");
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);   // bumped to re-acquire devices
 
   // ---- Setup camera + mic + models ----
   useEffect(() => {
@@ -168,7 +156,7 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
       landmarkerRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeQuestion]);
+  }, [activeQuestion, attempt]);
 
   // ---- FaceMesh loop ----
   const loop = useCallback(() => {
@@ -238,20 +226,6 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
     }
   }, []);
 
-  if (fatal) {
-    return (
-      <PageShell title="We can't start your camera" backHref="/study" backLabel="Study">
-        <Alert tone="error" title="Camera and microphone unavailable">{fatal}</Alert>
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Button onClick={() => location.reload()}>Try again</Button>
-          <Button variant="secondary" onClick={() => setDevices({ devicesReady: false })}>
-            Choose different devices
-          </Button>
-        </div>
-      </PageShell>
-    );
-  }
-
   if (!q) {
     return (
       <PageShell title="That question isn't in this session" lead="Head back and start again.">
@@ -272,31 +246,44 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
           <h2 className="text-2xl font-medium sm:text-3xl">{q.question}</h2>
         </div>
 
-        {/* Real mic level, not decoration: flat until you are actually
-            recording, and frozen entirely under prefers-reduced-motion. */}
-        <Waveform stream={streamRef.current} active={recording} bars={44} />
-
         <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
           {/* LEFT: answer area */}
           <div className="space-y-4">
             <Transcription
+              blocked={Boolean(fatal)}
               activeQuestion={activeQuestion}
               setError={setError}
               transcriptFinished={finishQuestion}
               stream={streamRef.current}
               triggerRecording={triggerRecording}
             />
+            {fatal && (
+              <Alert tone="error" title="Camera and microphone are required">
+                <p>{fatal}</p>
+                <p className="mt-2">
+                  You can&apos;t move to the next question until both are allowed — there would be
+                  nothing to score.
+                </p>
+                <span className="mt-3 flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => { setFatal(""); setAttempt((a) => a + 1); }}>
+                    Try again
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setCheckOpen(true)}>
+                    Check camera and mic
+                  </Button>
+                </span>
+              </Alert>
+            )}
             {error && <Alert tone="warning" title="Speech recognition">{error}</Alert>}
             {faceUnavailable && <Alert tone="warning" title="No delivery score">{faceUnavailable}</Alert>}
             {recorderUnavailable && <Alert tone="warning" title="No replay">{recorderUnavailable}</Alert>}
           </div>
 
-          {/* RIGHT: camera + gauge */}
-          <div className="space-y-4">
+          {/* RIGHT: camera, with the live readouts overlaid on it */}
+          <div className="space-y-3">
             <div className="relative overflow-hidden rounded-2xl border border-line bg-black">
               {/* Mirrored once, here. The old markup applied both `flip-rtl`
-                  and `-scale-x-100`, so in Farsi the two cancelled out and the
-                  preview came back un-mirrored. */}
+                  and `-scale-x-100`, so in Farsi the two cancelled out. */}
               <video
                 ref={videoRef}
                 muted
@@ -304,29 +291,72 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
                 aria-label="Your camera preview"
                 className="aspect-[4/3] w-full -scale-x-100 object-cover"
               />
-              {!ready && !error && (
-                <p
-                  role="status"
-                  className="absolute inset-0 flex items-center justify-center bg-black/60 p-4 text-center text-sm text-white"
+
+              {/* TOP: delivery readout */}
+              {ready && !faceUnavailable && (
+                <div className="pointer-events-none absolute inset-x-3 top-3">
+                  <ConfidenceGauge m={metrics} />
+                </div>
+              )}
+
+              {recording && (
+                <p className="absolute end-3 top-3 flex items-center gap-2 rounded-full px-3 py-1.5
+                              text-xs font-bold text-white"
+                   style={{ background: "rgb(190 32 24)" }}>
+                  <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                  REC
+                </p>
+              )}
+
+              {/* BOTTOM: the voice meter. Mirrored around a centre line, which
+                  is how audio is conventionally drawn and what keeps it legible
+                  at this height. The scrim is a soft gradient so the meter sits
+                  in the picture rather than on a slab laid over it. */}
+              {ready && (
+                <div
+                  className="pointer-events-none absolute inset-x-0 bottom-0 px-4 pb-3.5 pt-10"
+                  style={{
+                    background:
+                      "linear-gradient(to top, rgb(16 16 18 / 0.85) 30%, rgb(16 16 18 / 0) 100%)",
+                  }}
                 >
+                  <Waveform
+                    stream={streamRef.current}
+                    active={recording}
+                    bars={52}
+                    align="center"
+                    height="1.75rem"
+                    tone={{ active: "rgb(200 247 81)", idle: "rgb(255 255 255 / 0.34)" }}
+                  />
+                </div>
+              )}
+
+              {!ready && !fatal && (
+                <p role="status"
+                   className="absolute inset-0 flex items-center justify-center bg-black/70 p-4 text-center text-sm text-white">
                   Starting your camera…
                 </p>
               )}
-              {recording && (
-                <p className="absolute start-3 top-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold text-white">
-                  <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-danger" />
-                  Recording
-                </p>
-              )}
             </div>
-            {!faceUnavailable && (
-              <Card pad="sm">
-                <ConfidenceGauge m={metrics} />
-              </Card>
-            )}
+
+            <Button
+              variant="secondary"
+              size="sm"
+              fullWidth
+              onClick={() => setCheckOpen(true)}
+            >
+              <LuSettings2 aria-hidden className="h-4 w-4" />
+              Check camera and mic
+            </Button>
           </div>
         </div>
       </div>
+
+      <DeviceCheckDialog
+        open={checkOpen}
+        onClose={() => setCheckOpen(false)}
+        onApplied={() => { setFatal(""); setAttempt((a) => a + 1); }}
+      />
     </PageShell>
   );
 };

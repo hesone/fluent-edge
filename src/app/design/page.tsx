@@ -12,6 +12,9 @@ import Progress from "@/components/ui/Progress";
 import ScoreTile from "@/components/ui/ScoreTile";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import ThemeToggle from "@/components/ui/ThemeToggle";
+import ConfidenceGauge from "@/components/ConfidenceGauge";
+import Waveform from "@/components/ui/Waveform";
+import RecordButton from "@/components/ui/RecordButton";
 
 /**
  * Design preview — not part of the product; delete before release.
@@ -41,6 +44,7 @@ export default function DesignPreview() {
         <Choices />
         <Fields />
         <Messages />
+        <VideoOverlays />
         <Scores />
         <Overlay />
       </div>
@@ -339,6 +343,50 @@ function Overlay() {
           </div>
         </div>
       </Dialog>
+    </Section>
+  );
+}
+
+function VideoOverlays() {
+  return (
+    <Section
+      title="Camera overlays"
+      hint="These sit on live video, so nothing behind them can be contrast-checked. Both chips use an opaque scrim with fixed, theme-independent colours — verified against a blown-out white frame, the worst case."
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        {[["#111", "dark frame"], ["#fff", "blown-out white frame"]].map(([bg, label]) => (
+          <div key={label}>
+            <div className="relative overflow-hidden rounded-2xl border border-line" style={{ background: bg }}>
+              <div className="aspect-[4/3] w-full" />
+              <div className="pointer-events-none absolute inset-x-3 top-3">
+                <ConfidenceGauge
+                  m={{ confidence: 82, eyeContact: 74, nervousness: 28, engagement: 66, headStability: 88 }}
+                />
+              </div>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 px-4 pb-3.5 pt-10"
+                   style={{ background: "linear-gradient(to top, rgb(16 16 18 / 0.85) 30%, rgb(16 16 18 / 0) 100%)" }}>
+                <Waveform active bars={52} align="center" height="1.75rem"
+                          tone={{ active: "rgb(200 247 81)", idle: "rgb(255 255 255 / 0.34)" }} />
+              </div>
+            </div>
+            <p className="mt-2 text-sm text-fg-muted">{label}</p>
+          </div>
+        ))}
+      </div>
+      <div className="relative overflow-hidden rounded-2xl border border-line" style={{ background: "#1c2b1c" }}>
+        <div className="aspect-[16/6] w-full" />
+        <div className="pointer-events-none absolute inset-x-3 top-3">
+          <ConfidenceGauge
+            m={{ confidence: 38, eyeContact: 31, nervousness: 72, engagement: 44, headStability: 60 }}
+          />
+        </div>
+      </div>
+      <p className="text-sm text-fg-muted">
+        Low score with a weak metric — one instruction surfaces instead of four numbers.
+      </p>
+      <RecordButton recording={false} matched={11} total={19} threshold={0.92} onClick={() => {}} />
+      <RecordButton recording matched={16} total={19} threshold={0.92} onClick={() => {}} />
+      <RecordButton recording matched={19} total={19} threshold={0.92} onClick={() => {}} />
     </Section>
   );
 }
