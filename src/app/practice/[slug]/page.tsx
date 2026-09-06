@@ -14,6 +14,7 @@ import Card from "@/components/ui/Card";
 import PageShell from "@/components/ui/PageShell";
 import Progress from "@/components/ui/Progress";
 import Waveform from "@/components/ui/Waveform";
+import ReadyCheck from "@/components/ReadyCheck";
 
 const emptyMetrics: FaceMetrics = {
   confidence: 50, eyeContact: 50, nervousness: 30, engagement: 50, headStability: 70,
@@ -42,12 +43,27 @@ export default function Practice({ params }: { params: Promise<{ slug: string }>
     );
   }
 
-  return <PracticeContent activeQuestion={Number(activeQuestion)} />;
+  return <PracticeGate activeQuestion={Number(activeQuestion)} />;
+}
+
+/**
+ * Nothing touches the camera until the pre-flight check has been passed once
+ * per session. Mounting PracticeContent is what starts the hardware, so the
+ * gate has to sit above it rather than inside it.
+ */
+function PracticeGate({ activeQuestion }: { activeQuestion: number }) {
+  const devicesReady = useSessionStore((s) => s.devicesReady);
+  const setDevices = useSessionStore((s) => s.setDevices);
+
+  if (!devicesReady) {
+    return <ReadyCheck onReady={() => setDevices({ devicesReady: true })} />;
+  }
+  return <PracticeContent activeQuestion={activeQuestion} />;
 }
 
 const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   const router = useRouter();
-  const { questions, saveResult } = useSessionStore();
+  const { questions, saveResult, videoDeviceId, audioDeviceId, setDevices } = useSessionStore();
   const q = questions[activeQuestion];
 
   // refs
@@ -64,24 +80,51 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
   const [metrics, setMetrics] = useState<FaceMetrics>(emptyMetrics);
   const [ready, setReady] = useState(false);
   const [recording, setRecording] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState("");            // recoverable, from Transcription
+  const [fatal, setFatal] = useState("");            // no camera/mic: nothing works
+  const [faceUnavailable, setFaceUnavailable] = useState("");
+  const [recorderUnavailable, setRecorderUnavailable] = useState("");
 
   // ---- Setup camera + mic + models ----
   useEffect(() => {
     let mounted = true;
     (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 640, height: 480, facingMode: "user" },
-          audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
-        });
-        if (!mounted) return;
-        streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
+      // Three independent things can fail here, and they used to share one
+      // catch and one message — so a blocked model download told the user their
+      // camera permission was wrong. Only the first is actually fatal.
+      let stream: MediaStream;
 
+      // 1. Camera + mic. Fatal: there is no practice without them.
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            ...(videoDeviceId ? { deviceId: { ideal: videoDeviceId } } : {}),
+            width: 640, height: 480, facingMode: "user",
+          },
+          audio: {
+            ...(audioDeviceId ? { deviceId: { ideal: audioDeviceId } } : {}),
+            channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true,
+          },
+        });
+      } catch (e) {
+        if (mounted) setFatal(
+          "We couldn't reach your camera and microphone. Check that this site is allowed to use " +
+          "them in your browser's site settings, then reload. " + describe(e)
+        );
+        return;
+      }
+      if (!mounted) { stream.getTracks().forEach((t) => t.stop()); return; }
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setReady(true);
+
+      // 2. Face landmarker. Downloaded from a CDN, so it fails on an offline or
+      //    restricted network — which must not take the whole session down.
+      //    Speaking and grading work fine without it; only delivery scoring is lost.
+      try {
         const filesets = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18/wasm"
         );
@@ -95,19 +138,24 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
           numFaces: 1,
           outputFaceBlendshapes: false,
         });
+        if (mounted) loop();
+      } catch (e) {
+        if (mounted) setFaceUnavailable(
+          "Delivery scoring is off for this session — the face model couldn't be downloaded. " +
+          "Your answers are still recorded and graded. " + describe(e)
+        );
+      }
 
+      // 3. Recorder. Only the replay video depends on it.
+      try {
         const recorder = new MediaRecorder(stream, { mimeType: pickMime() });
         recorder.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
         recorder.start();
         recorder.pause();
         recorderRef.current = recorder;
-
-        setReady(true);
-        loop();
       } catch (e) {
-        setError(
-          "We couldn't reach your camera and microphone. Check that this site is allowed to use them in your browser's site settings, then reload. " +
-          String(e)
+        if (mounted) setRecorderUnavailable(
+          "We can't save a replay of this session, but scoring is unaffected. " + describe(e)
         );
       }
     })();
@@ -190,6 +238,20 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
     }
   }, []);
 
+  if (fatal) {
+    return (
+      <PageShell title="We can't start your camera" backHref="/study" backLabel="Study">
+        <Alert tone="error" title="Camera and microphone unavailable">{fatal}</Alert>
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Button onClick={() => location.reload()}>Try again</Button>
+          <Button variant="secondary" onClick={() => setDevices({ devicesReady: false })}>
+            Choose different devices
+          </Button>
+        </div>
+      </PageShell>
+    );
+  }
+
   if (!q) {
     return (
       <PageShell title="That question isn't in this session" lead="Head back and start again.">
@@ -224,7 +286,9 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
               stream={streamRef.current}
               triggerRecording={triggerRecording}
             />
-            {error && <Alert tone="warning" title="Something needs your attention">{error}</Alert>}
+            {error && <Alert tone="warning" title="Speech recognition">{error}</Alert>}
+            {faceUnavailable && <Alert tone="warning" title="No delivery score">{faceUnavailable}</Alert>}
+            {recorderUnavailable && <Alert tone="warning" title="No replay">{recorderUnavailable}</Alert>}
           </div>
 
           {/* RIGHT: camera + gauge */}
@@ -255,15 +319,25 @@ const PracticeContent = ({ activeQuestion }: { activeQuestion: number }) => {
                 </p>
               )}
             </div>
-            <Card pad="sm">
-              <ConfidenceGauge m={metrics} />
-            </Card>
+            {!faceUnavailable && (
+              <Card pad="sm">
+                <ConfidenceGauge m={metrics} />
+              </Card>
+            )}
           </div>
         </div>
       </div>
     </PageShell>
   );
 };
+
+/** Human-readable cause. `String(e)` on a DOM Event gives "[object Event]". */
+function describe(e: unknown): string {
+  if (e instanceof Error) return `(${e.name}: ${e.message})`;
+  if (e instanceof Event) return `(${e.type} event)`;
+  if (typeof e === "string") return `(${e})`;
+  return "";
+}
 
 function pickMime() {
   const opts = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];

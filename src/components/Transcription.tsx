@@ -78,6 +78,9 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 	const [recording, setRecording] = useState(false);
 	const [sttReady, setSttReady] = useState(false);
 	const [sttProvider, setSttProvider] = useState<STTProvider | null>(null);
+	// Set when an attempt finishes below the threshold, so the reset can be
+	// explained instead of silently wiping the user's progress.
+	const [lastMiss, setLastMiss] = useState<{ got: number; need: number } | null>(null);
 
 	// Set up the speech-to-text adapter — Web Speech online, whisper.cpp over
 	// the local media server offline (src/lib/config.ts decides which).
@@ -136,6 +139,7 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 			// Web Speech opens the mic itself; whisper.cpp has to be fed the
 			// stream the parent already holds for the camera.
 			await stt.start(stt.needsStream ? streamRef.current : null, { language });
+			setLastMiss(null);
 			setRecording(true);
 			triggerRecording();
 		} catch (e) {
@@ -151,12 +155,16 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 		setStates(words.map(() => "pending"));
 	}
 
+	const threshold = getThreshold(langLevel, words.length);
+	const matched = states.filter((s) => s === "correct").length;
+	const matchPct = states.length ? matched / states.length : 0;
+
 	useEffect(() => {
-		const treshold = getThreshold(langLevel, words.length);
-		const everyGreen = states.length > 0 && states.filter((s) => s === "correct").length / states.length >= treshold;
+		const everyGreen = states.length > 0 && matchPct >= threshold;
 		const everyReaded = states.length > 0 && states.every(s => s !== "pending")
 		if(everyReaded) {
 			if (everyGreen) {
+				setLastMiss(null);
 				if (!allGreen) {
 					setAllGreen(true);
 					// reset transcript baseline for memory phase
@@ -166,6 +174,10 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
 					triggerTranscription();
 				}
 			} else {
+				// Previously this reset with no feedback at all: every green word
+				// vanished and the user was never told the target or how close
+				// they got. Record the miss so the UI can say what happened.
+				setLastMiss({ got: matchPct, need: threshold });
 				resetTranscript()
 			}
 		}
@@ -218,6 +230,18 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
   return (
     <>
       <Card pad="md">
+        {/* The loop is a two-phase drill. It used to be invisible: nothing told
+            you there was a second phase, or what you were working towards. */}
+        <ol className="mb-5 flex flex-wrap items-center gap-2 text-sm">
+          <PhaseStep n={1} label="Read it aloud" state={allGreen ? "done" : "current"} />
+          <li aria-hidden className="h-px w-6 bg-line-strong" />
+          <PhaseStep
+            n={2}
+            label="Say it from memory"
+            state={memoryDone ? "done" : allGreen ? "current" : "todo"}
+          />
+        </ol>
+
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="eyebrow">
             {allGreen ? "From memory 🧠" : t(language, "idealAnswer")}
@@ -240,6 +264,45 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
             )}
           </div>
         </div>
+
+        {!memoryDone && states.length > 0 && (
+          <div className="mb-4">
+            <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+              <span className="font-medium">
+                {matched} of {states.length} words matched
+              </span>
+              <span className="text-fg-muted">
+                need {Math.round(threshold * 100)}%
+              </span>
+            </div>
+            <div
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(matchPct * 100)}
+              aria-label={`Match accuracy — ${Math.round(matchPct * 100)} percent of ${Math.round(threshold * 100)} percent needed`}
+              className="relative h-2 overflow-hidden rounded-full bg-surface-2"
+            >
+              <div
+                className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+                style={{ width: `${Math.round(matchPct * 100)}%` }}
+              />
+              {/* The bar alone can't show where the bar is: mark the target. */}
+              <span
+                aria-hidden
+                className="absolute top-0 h-full w-0.5 bg-fg"
+                style={{ insetInlineStart: `${Math.round(threshold * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {lastMiss && (
+          <Alert tone="warning" className="mb-4" title="Not quite — starting that passage again">
+            You matched {Math.round(lastMiss.got * 100)}% of the words and need{" "}
+            {Math.round(lastMiss.need * 100)}%. Try speaking a little more slowly and clearly.
+          </Alert>
+        )}
 
         {/* Phase 1: read-and-pronounce; Phase 2: karaoke from memory */}
         {(!allGreen || showHint) && (
@@ -308,5 +371,32 @@ export default function Transcription({ activeQuestion, setError, transcriptFini
         )}
       </div>
     </>
+  );
+}
+
+function PhaseStep({
+  n, label, state,
+}: { n: number; label: string; state: "todo" | "current" | "done" }) {
+  return (
+    <li className="flex items-center gap-2">
+      <span
+        aria-hidden
+        className={`flex h-6 w-6 items-center justify-center rounded-full border-2 text-2xs font-bold
+          ${state === "done"
+            ? "border-accent bg-accent text-accent-fg"
+            : state === "current"
+              ? "border-accent text-accent-text"
+              : "border-line-strong text-fg-muted"}`}
+      >
+        {state === "done" ? "\u2713" : n}
+      </span>
+      <span className={state === "todo" ? "text-fg-muted" : "font-semibold"}>
+        {label}
+        {/* State carried in words too, not by colour and a tick alone. */}
+        <span className="sr-only">
+          {state === "done" ? " — done" : state === "current" ? " — current step" : " — not started"}
+        </span>
+      </span>
+    </li>
   );
 }

@@ -188,10 +188,19 @@ export default function Study() {
             )}
           </section>
 
+          {/* Set expectations before the drill starts: practice is two passes
+              per question, and it is demanding. Arriving at it cold was a
+              surprise. */}
+          <p className="mt-8 rounded-xl border border-line bg-surface-2 p-4 text-sm text-fg-muted">
+            <span className="font-semibold text-fg">How practice works: </span>
+            for each question you read this answer aloud until enough words match, then say it again
+            from memory. Read it through now — you&apos;ll need it.
+          </p>
+
           <Button
             size="lg"
             fullWidth
-            className="mt-8"
+            className="mt-4"
             disabled={loading}
             onClick={() => proceed()}
           >
