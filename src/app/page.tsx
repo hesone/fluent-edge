@@ -166,6 +166,18 @@ export default function Onboarding() {
             />
 
             <ChoiceGroup
+              legend={t(language, "chooseSeniority")}
+              variant="compact"
+              columns={3}
+              value={seniority}
+              onChange={setSeniority}
+              options={(["junior", "mid", "senior"] as Seniority[]).map((s) => ({
+                value: s,
+                label: t(language, s),
+              }))}
+            />
+
+            <ChoiceGroup
               legend={t(language, "chooseMode")}
               value={mode}
               onChange={setMode}
@@ -232,18 +244,6 @@ export default function Onboarding() {
                 </div>
               </>
             )}
-
-            <ChoiceGroup
-              legend={t(language, "chooseSeniority")}
-              variant="compact"
-              columns={3}
-              value={seniority}
-              onChange={setSeniority}
-              options={(["junior", "mid", "senior"] as Seniority[]).map((s) => ({
-                value: s,
-                label: t(language, s),
-              }))}
-            />
           </>
         )}
 
