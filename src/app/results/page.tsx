@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LuPlay, LuRotateCcw } from "react-icons/lu";
-import { useSessionStore, type QuestionResult } from "@/store/useSessionStore";
+import { useSessionStore, jdKeyOf, MIN_APPROVED_STORIES, INTERVIEW_STAGES, type QuestionResult } from "@/store/useSessionStore";
+import { STAGES, storyGaps } from "@/lib/interview";
 import { Lang, t } from "@/lib/i18n";
 import { fireCardConfetti, FullPageConfetti } from "@/components/Confetti";
 import Button from "@/components/ui/Button";
@@ -13,7 +14,11 @@ import ScoreTile from "@/components/ui/ScoreTile";
 
 export default function Results() {
   const router = useRouter();
-  const { questions, results, language, reset } = useSessionStore();
+  const { questions, results, language, reset, jdText, storyBanks, setOnboarding } = useSessionStore();
+  const sessionStage = questions[0]?.stage;
+  const bank = sessionStage && jdText.trim() ? storyBanks[jdKeyOf(jdText)] : undefined;
+  const gaps = storyGaps(bank?.responsibilities, MIN_APPROVED_STORIES);
+  const nextStage = sessionStage ? INTERVIEW_STAGES[INTERVIEW_STAGES.indexOf(sessionStage) + 1] : undefined;
   const [replay, setReplay] = useState<number | null>(null);
 
   const allPerfect = useMemo(
@@ -63,6 +68,51 @@ export default function Results() {
             </li>
           ))}
         </ul>
+
+        {bank && gaps.length > 0 && (
+          <Card pad="lg" className="space-y-4">
+            <div>
+              <p className="eyebrow">{t(language, "storyBank")}</p>
+              <h2 className="mt-1 text-2xl font-medium">{t(language, "missingStories")}</h2>
+              <p className="mt-2 text-fg-muted">
+                These responsibilities of the role still lean on drafted stories. Add one of your own before the real interview —
+                interviewers dig into details, and it&apos;s easier when the story is truly yours.
+              </p>
+            </div>
+            <ul className="space-y-2">
+              {gaps.map(({ r, approved, own }) => (
+                <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line p-3">
+                  <span className="font-medium">{r.title}</span>
+                  <span className="text-sm text-fg-muted">
+                    {own === 0 ? "No story of your own" : `${approved} of ${MIN_APPROVED_STORIES} stories in use`}
+                    {r.prompts.find((p) => !p.storyId) && <> · Try: “{r.prompts.find((p) => !p.storyId)!.prompt}”</>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <Button onClick={() => router.push("/stories")}>Add stories</Button>
+          </Card>
+        )}
+
+        {sessionStage && (
+          <Card pad="md" className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              You practised the <span className="font-semibold">{STAGES[sessionStage].label}</span> round.
+              {nextStage && <> Next in the loop: {STAGES[nextStage].label}.</>}
+            </p>
+            {nextStage && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setOnboarding({ stage: nextStage });
+                  router.push(jdText.trim() ? "/stories" : "/");
+                }}
+              >
+                Prepare for {STAGES[nextStage].short}
+              </Button>
+            )}
+          </Card>
+        )}
 
         <div className="flex justify-center">
           <Button variant="secondary" onClick={() => { reset(); router.push("/"); }}>

@@ -1,5 +1,9 @@
 import { Mode } from "@/store/useSessionStore";
-import { streamText } from "ai";
+import { generateText, Output, streamText } from "ai";
+import { z } from "zod";
+import { LANG_NAME } from "@/lib/i18n";
+import { STAGES, KIND_RULES, SPOKEN_RULES, storyBankBlock, joinStar, hasStar } from "@/lib/interview";
+import type { InterviewStage, QuestionKind, Responsibility } from "@/store/useSessionStore";
 import { getLLM, llmLabel } from "@/lib/llm";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -7,7 +11,11 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-    const { question, topic, resume } = await req.json();
+    const body = await req.json();
+    const { question, topic, resume } = body;
+    // Interview-stage questions carry a kind; they get a kind-aware answer
+    // (and a S/T/A/R split for behavioural ones) returned as JSON.
+    if (body.kind && body.stage) return stageAnswer(body);
     const [level, langName, sitaution] = topic.split('-')
     const prompt = (resume || (['interview', 'professional'] as Mode[]).includes(sitaution.trim())) ?
     `You are an expert ${langName} language coach and interviewer.
@@ -63,6 +71,56 @@ Return a text as an answer.
     return result.toTextStreamResponse()
   } catch (e) {
     console.log(e)
+    return NextResponse.json(
+      { error: "Generation failed", detail: String(e), provider: await llmLabel().catch(() => "the LLM") },
+      { status: 500 }
+    );
+  }
+}
+
+async function stageAnswer(b: {
+  question: string; kind: QuestionKind; stage: InterviewStage; seniority?: string; language?: string;
+  resume?: string; jdText?: string; responsibility?: string; responsibilities?: Responsibility[];
+}) {
+  const meta = STAGES[b.stage] ?? STAGES.ta;
+  const langName = LANG_NAME[b.language || "en"] || "English";
+  const kind: QuestionKind = b.kind in KIND_RULES ? b.kind : "behavioural";
+  const bank = storyBankBlock(b.responsibilities);
+  const prompt = `You are ${meta.interviewer}, and an expert ${langName} interview coach.
+Write a DIFFERENT ideal spoken answer for a ${b.seniority || "mid"}-level candidate to this ${meta.label} interview question:
+"${b.question}"
+${b.responsibility ? `It probes this key responsibility of the role: ${b.responsibility}` : ""}
+
+${b.jdText ? `JOB DESCRIPTION:\n"""\n${String(b.jdText).slice(0, 8000)}\n"""` : ""}
+RESUME:
+"""
+${b.resume || "No resume provided. Use a general professional background."}
+"""
+${bank ? `\nAPPROVED STAR STORIES (prefer the candidate's own; pick the one that best fits):\n${bank}\n` : ""}
+Kind of question: ${kind}. ${KIND_RULES[kind]}
+Never invent employers or facts that contradict the resume.
+${SPOKEN_RULES}
+All text must be in ${langName}.`;
+
+  try {
+    const { model, providerOptions } = await getLLM();
+    const { output } = await generateText({
+      model,
+      prompt,
+      output: Output.object({
+        schema: z.object({
+          star: z.object({ situation: z.string(), task: z.string(), action: z.string(), result: z.string() }),
+          idealAnswer: z.string(),
+        }),
+      }),
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+    const star = kind === "behavioural" && hasStar(output?.star) ? output.star : undefined;
+    const idealAnswer = output?.idealAnswer?.trim() || (star ? joinStar(star) : "");
+    if (!idealAnswer) throw new Error("empty");
+    return NextResponse.json({ idealAnswer, star });
+  } catch (e) {
+    console.log(e);
     return NextResponse.json(
       { error: "Generation failed", detail: String(e), provider: await llmLabel().catch(() => "the LLM") },
       { status: 500 }

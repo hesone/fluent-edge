@@ -6,11 +6,74 @@ export type Converstion = "general" | "workspace";
 export type Mode = "interview" | "professional";
 export type Seniority = "junior" | "mid" | "senior";
 
+/** Interview loop stage: Talent Acquisition, HR Manager, Engineering Manager, Senior Engineer. */
+export type InterviewStage = "ta" | "hrm" | "enm" | "senior";
+export const INTERVIEW_STAGES: InterviewStage[] = ["ta", "hrm", "enm", "senior"];
+
+/** What kind of question it is — decides whether the ideal answer is a full STAR story. */
+export type QuestionKind = "behavioural" | "technical" | "system-design" | "factual";
+
+export interface StarParts {
+  situation: string;
+  task: string;
+  action: string;
+  result: string;
+}
+
+export interface StarStory extends StarParts {
+  id: string;
+  title: string;
+  /** "ai" = drafted from the résumé, "user" = written from the learner's own answer. */
+  source: "ai" | "user";
+  approved: boolean;
+}
+
+export interface StoryPrompt {
+  id: string;
+  prompt: string;
+  /** The learner's raw answer, before it is turned into a STAR story. */
+  answer: string;
+  /** Set once the answer has been converted into a story. */
+  storyId?: string;
+}
+
+export interface Responsibility {
+  id: string;
+  title: string;
+  summary: string;
+  stories: StarStory[];
+  prompts: StoryPrompt[];
+}
+
+/** STAR stories built for one job description. Keyed by a hash of the JD text. */
+export interface StoryBank {
+  jdKey: string;
+  jobTitle: string;
+  responsibilities: Responsibility[];
+  updatedAt: number;
+}
+
 export interface QA {
   id: number;
   question: string;
   idealAnswer: string;
+  stage?: InterviewStage;
+  kind?: QuestionKind;
+  /** Present for behavioural questions: the ideal answer split into S/T/A/R. */
+  star?: StarParts;
+  /** The responsibility from the JD this question probes, if any. */
+  responsibility?: string;
 }
+
+/** Stable short key for a JD so the same posting reuses its story bank. */
+export function jdKeyOf(text: string): string {
+  const norm = text.replace(/\s+/g, " ").trim().toLowerCase();
+  let h = 5381;
+  for (let i = 0; i < norm.length; i++) h = ((h << 5) + h + norm.charCodeAt(i)) | 0;
+  return norm ? `jd_${(h >>> 0).toString(36)}_${norm.length}` : "";
+}
+
+export const MIN_APPROVED_STORIES = 2;
 
 export interface PreferredQA {
   id: number;
@@ -45,18 +108,24 @@ interface SessionState {
   language: Lang;
   mode: Mode;
   seniority: Seniority;
+  stage: InterviewStage;
+  jdText: string;
+  storyBanks: Record<string, StoryBank>;
   questions: QA[];
   results: Record<number, QuestionResult>;
   // Preferred Q&A kept separately per conversation tab
   preferredQA: Record<Converstion, PreferredQA[]>;
 
   setDevices: (d: Partial<Pick<SessionState, "videoDeviceId" | "audioDeviceId">>) => void;
-  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "topic" | "seniority" | "convType" | "langLevel" | "situation">>) => void;
+  setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "topic" | "seniority" | "convType" | "langLevel" | "situation" | "stage" | "jdText">>) => void;
+  setStoryBank: (bank: StoryBank) => void;
+  updateResponsibility: (jdKey: string, respId: string, fn: (r: Responsibility) => Responsibility) => void;
   addPreferredQA: (tab: Converstion, question: string, answer: string) => void;
   updatePreferredQA: (tab: Converstion, id: number, d: Partial<Pick<PreferredQA, "question" | "answer">>) => void;
   removePreferredQA: (tab: Converstion, id: number) => void;
   setQuestions: (q: QA[]) => void;
   setAnswerForQuestion: (qId: number, a: string) => void;
+  updateQuestion: (qId: number, d: Partial<Omit<QA, "id">>) => void;
   saveResult: (id: number, r: Partial<QuestionResult>) => void;
   reset: () => void;
 }
@@ -79,6 +148,9 @@ export const useSessionStore = create<SessionState>()(
       topic: "",
       mode: "interview",
       seniority: "mid",
+      stage: "ta",
+      jdText: "",
+      storyBanks: {},
       situation: "",
       questions: [],
       results: {},
@@ -86,6 +158,22 @@ export const useSessionStore = create<SessionState>()(
 
       setDevices: (d) => set(d),
       setOnboarding: (d) => set(d),
+      setStoryBank: (bank) =>
+        set({ storyBanks: { ...get().storyBanks, [bank.jdKey]: { ...bank, updatedAt: Date.now() } } }),
+      updateResponsibility: (jdKey, respId, fn) => {
+        const bank = get().storyBanks[jdKey];
+        if (!bank) return;
+        set({
+          storyBanks: {
+            ...get().storyBanks,
+            [jdKey]: {
+              ...bank,
+              updatedAt: Date.now(),
+              responsibilities: bank.responsibilities.map((r) => (r.id === respId ? fn(r) : r)),
+            },
+          },
+        });
+      },
       addPreferredQA: (tab, question, answer) => {
         const list = get().preferredQA[tab];
         if (list.length >= MAX_PREFERRED_QA) return;
@@ -120,6 +208,8 @@ export const useSessionStore = create<SessionState>()(
           questions: get().questions.map(question => (question.id === qId ? { ...question, idealAnswer: answer }: question))
         })
       },
+      updateQuestion: (qId, d) =>
+        set({ questions: get().questions.map((q) => (q.id === qId ? { ...q, ...d } : q)) }),
       saveResult: (id, r) => {
         const cur = get().results[id] ?? emptyResult();
         const merged = { ...cur, ...r };
@@ -141,6 +231,7 @@ export const useSessionStore = create<SessionState>()(
         seniority: s.seniority, questions: s.questions, results: s.results,
         convType: s.convType, langLevel: s.langLevel, situation: s.situation,
         topic: s.topic, preferredQA: s.preferredQA,
+        stage: s.stage, jdText: s.jdText, storyBanks: s.storyBanks,
         videoDeviceId: s.videoDeviceId, audioDeviceId: s.audioDeviceId,
       }),
     }

@@ -2,15 +2,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LuSparkles } from "react-icons/lu";
-import { useSessionStore, Mode, Seniority, Converstion } from "@/store/useSessionStore";
+import { useSessionStore, Mode, Seniority, Converstion, InterviewStage, INTERVIEW_STAGES, jdKeyOf } from "@/store/useSessionStore";
+import { STAGES } from "@/lib/interview";
+import { requestQuestions, llmErrorMessage } from "@/lib/session";
 import { LANGS, LANG_LEVEL, Lang, LangLevel, t } from "@/lib/i18n";
 import PreferredQA from "@/components/PreferredQA";
-import { APP_MODE } from "@/lib/config";
 import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import ChoiceGroup from "@/components/ui/ChoiceGroup";
-import { TextField } from "@/components/ui/Field";
+import { TextArea, TextField } from "@/components/ui/Field";
 import FileDrop from "@/components/ui/FileDrop";
 import PageShell from "@/components/ui/PageShell";
 import Waveform from "@/components/ui/Waveform";
@@ -18,8 +19,9 @@ import Waveform from "@/components/ui/Waveform";
 export default function Onboarding() {
   const router = useRouter();
   const {
-    setOnboarding, setQuestions, preferredQA,
+    setOnboarding, setQuestions,
     resumeText, language, convType, mode, seniority, langLevel, situation,
+    stage, jdText, storyBanks,
   } = useSessionStore();
 
   // Every setting writes straight to the persisted store so each tab keeps its state
@@ -30,6 +32,35 @@ export default function Onboarding() {
   const setSeniority = (seniority: Seniority) => setOnboarding({ seniority });
   const setLangLevel = (langLevel: LangLevel) => setOnboarding({ langLevel });
   const setSituation = (situation: string) => setOnboarding({ situation });
+  const setStage = (stage: InterviewStage) => setOnboarding({ stage });
+  const setJdText = (jdText: string) => setOnboarding({ jdText });
+
+  const interview = convType === "workspace" && mode === "interview";
+  const hasJD = jdText.trim().length >= 40;
+  const bank = hasJD ? storyBanks[jdKeyOf(jdText)] : undefined;
+  const approvedStories = bank?.responsibilities.reduce((n, r) => n + r.stories.filter((s) => s.approved).length, 0) ?? 0;
+
+  const [jdFileName, setJdFileName] = useState("");
+  const [jdParsing, setJdParsing] = useState(false);
+  const [jdError, setJdError] = useState("");
+
+  async function handleJdFile(file: File) {
+    setJdFileName(file.name);
+    setJdParsing(true);
+    setJdError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/parse-resume", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.text) setJdText(data.text);
+      else setJdError("We couldn't find any text in that PDF. Paste the job description instead.");
+    } catch {
+      setJdError("Reading that file failed. Paste the job description instead.");
+    } finally {
+      setJdParsing(false);
+    }
+  }
 
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -56,36 +87,25 @@ export default function Onboarding() {
   }
 
   async function handleSubmit() {
+    // With a JD, interview prep starts with the Story Bank: key responsibilities
+    // and STAR stories first, questions second.
+    if (interview && hasJD) {
+      router.push("/stories");
+      return;
+    }
+    await generate();
+  }
+
+  async function generate() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch("/api/generate-questions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          convType, langLevel, resumeText, mode, seniority, language, situation,
-          preferredQA: preferredQA[convType] ?? [],
-        }),
-      });
-      const data = await res.json();
-      if (!data.questions?.length) {
-        // The route reports which backend it was talking to, so the message can
-        // name the thing to go start instead of guessing.
-        throw new Error(
-          [data.provider && `via ${data.provider}`, data.detail || "no questions came back"]
-            .filter(Boolean)
-            .join(" — ")
-        );
-      }
-      setOnboarding({ resumeText, language, mode, seniority, convType, langLevel, situation, topic: data.topic });
+      const data = await requestQuestions();
+      setOnboarding({ topic: data.topic });
       setQuestions(data.questions);
       router.push("/study");
     } catch (e) {
-      setError(
-        APP_MODE === "local"
-          ? `We couldn't reach your local model. Is Ollama running? Start it with \`ollama serve\`. (${String(e)})`
-          : `We couldn't build your session. Check your OpenRouter key and your connection, then try again. (${String(e)})`
-      );
+      setError(llmErrorMessage(e));
       setLoading(false);
     }
   }
@@ -166,6 +186,53 @@ export default function Onboarding() {
               ]}
             />
 
+            {mode === "interview" && (
+              <>
+                <ChoiceGroup
+                  legend={t(language, "chooseStage")}
+                  hint={t(language, "chooseStageHint")}
+                  value={stage}
+                  onChange={setStage}
+                  columns={2}
+                  options={INTERVIEW_STAGES.map((s) => ({
+                    value: s,
+                    label: `${STAGES[s].label} · ${STAGES[s].short}`,
+                    icon: STAGES[s].icon,
+                    description: STAGES[s].description,
+                  }))}
+                />
+
+                <div className="space-y-3">
+                  <TextArea
+                    label={t(language, "jobDescription")}
+                    hint={t(language, "jobDescriptionHint")}
+                    placeholder={t(language, "jobDescriptionPlaceholder")}
+                    rows={6}
+                    value={jdText}
+                    onChange={(e) => setJdText(e.target.value)}
+                  />
+                  <FileDrop
+                    label={t(language, "uploadJD")}
+                    fileName={jdFileName}
+                    busy={jdParsing}
+                    busyLabel="Reading the job description…"
+                    error={jdError}
+                    status={jdFileName && jdText ? `Job description read — ${jdText.length.toLocaleString()} characters.` : undefined}
+                    onFile={handleJdFile}
+                  />
+                  {bank && (
+                    <Alert tone="success" live={false} title={t(language, "storyBankSaved")}>
+                      {bank.responsibilities.length} key responsibilities · {approvedStories} approved STAR stories for
+                      {" "}{bank.jobTitle || "this role"}. They&apos;ll be reused for every stage.
+                    </Alert>
+                  )}
+                  {!hasJD && jdText.trim().length > 0 && (
+                    <p className="text-sm text-fg-muted">Paste the full posting — this looks too short to find the key responsibilities.</p>
+                  )}
+                </div>
+              </>
+            )}
+
             <ChoiceGroup
               legend={t(language, "chooseSeniority")}
               variant="compact"
@@ -212,14 +279,32 @@ export default function Onboarding() {
             size="lg"
             fullWidth
             loading={loading}
-            disabled={parsing}
+            disabled={parsing || jdParsing}
             onClick={handleSubmit}
           >
             {!loading && <LuSparkles aria-hidden className="h-4 w-4" />}
-            {loading ? t(language, "generating") : t(language, "generate")}
+            {loading
+              ? t(language, "generating")
+              : interview && hasJD
+                ? t(language, bank ? "openStoryBank" : "buildStoryBank")
+                : t(language, "generate")}
           </Button>
+          {interview && hasJD && bank && (
+            <Button
+              variant="secondary"
+              fullWidth
+              disabled={loading || parsing || jdParsing}
+              onClick={generate}
+            >
+              {t(language, "skipToQuestions", { stage: STAGES[stage].label })}
+            </Button>
+          )}
           <p className="text-center text-sm text-fg-muted">
-            You&apos;ll review the questions first — nothing is recorded until you choose to start.
+            {interview && hasJD
+              ? "First we pull the key responsibilities from the JD and draft STAR stories with you — then the questions."
+              : interview
+                ? "Add a job description to get key responsibilities and STAR stories tailored to the role."
+                : "You'll review the questions first — nothing is recorded until you choose to start."}
           </p>
         </div>
       </Card>

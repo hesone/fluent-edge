@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LuArrowRight, LuPencil, LuRefreshCcw, LuVolume2, LuVolumeOff } from "react-icons/lu";
-import { useSessionStore } from "@/store/useSessionStore";
+import { useSessionStore, jdKeyOf, type StarParts } from "@/store/useSessionStore";
+import { STAGES, KIND_LABEL, joinStar } from "@/lib/interview";
 import { t } from "@/lib/i18n";
 import TTSSentence, { ChildHandle } from "@/components/TTSSentences";
 import Button from "@/components/ui/Button";
@@ -14,7 +15,12 @@ import { SkeletonText } from "@/components/ui/Skeleton";
 
 export default function Study() {
   const router = useRouter();
-  const { questions, resumeText, language, topic, setAnswerForQuestion } = useSessionStore();
+  const {
+    questions, resumeText, language, topic, setAnswerForQuestion, updateQuestion,
+    seniority, jdText, storyBanks,
+  } = useSessionStore();
+  const [starDraft, setStarDraft] = useState<StarParts | null>(null);
+  const [showStar, setShowStar] = useState(true);
   const [answer, setAnswer] = useState("");
   const [loading, setLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -41,6 +47,25 @@ export default function Study() {
   const ask = async () => {
     setLoading(true);
     setAnswer("");
+    // Interview-stage questions get a kind-aware answer back as JSON.
+    if (q.kind && q.stage) {
+      try {
+        const res = await fetch("/api/generate-answer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: q.question, kind: q.kind, stage: q.stage, responsibility: q.responsibility,
+            seniority, language, resume: resumeText, jdText,
+            responsibilities: jdText.trim() ? storyBanks[jdKeyOf(jdText)]?.responsibilities ?? [] : [],
+          }),
+        });
+        const data = await res.json();
+        if (data.idealAnswer) updateQuestion(q.id, { idealAnswer: data.idealAnswer, star: data.star });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     const response = await fetch("/api/generate-answer", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -60,11 +85,13 @@ export default function Study() {
   function startEditing() {
     if (playing) toggleReading();
     setDraft(q.idealAnswer);
+    setStarDraft(q.star ? { ...q.star } : null);
     setEditing(true);
   }
 
   function saveEdit() {
-    setAnswerForQuestion(q.id, draft.trim());
+    if (starDraft) updateQuestion(q.id, { star: starDraft, idealAnswer: joinStar(starDraft) });
+    else setAnswerForQuestion(q.id, draft.trim());
     setEditing(false);
   }
 
@@ -101,7 +128,24 @@ export default function Study() {
         <Progress current={idx} total={questions.length} />
 
         <Card pad="lg">
-          <p className="eyebrow">Study mode</p>
+          <p className="eyebrow">
+            Study mode
+            {q.stage && <> · {STAGES[q.stage].label}</>}
+          </p>
+          {(q.kind || q.responsibility) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {q.kind && (
+                <span className="rounded-full bg-surface-2 px-2.5 py-1 text-2xs font-semibold uppercase tracking-wider text-fg-muted">
+                  {KIND_LABEL[q.kind]}
+                </span>
+              )}
+              {q.responsibility && (
+                <span className="rounded-full border border-line px-2.5 py-1 text-2xs font-medium text-fg-muted">
+                  Probes: {q.responsibility}
+                </span>
+              )}
+            </div>
+          )}
           {/* The question is the point of the screen, so it is the heading. */}
           <h2 className="mt-2 text-2xl font-medium sm:text-3xl">{q.question}</h2>
 
@@ -154,17 +198,31 @@ export default function Study() {
 
             {editing ? (
               <div>
-                <TextArea
-                  label={t(language, "editAnswer")}
-                  labelHidden
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  rows={8}
-                  autoFocus
-                  className="text-lg"
-                />
+                {starDraft ? (
+                  <div className="space-y-3">
+                    {(["situation", "task", "action", "result"] as const).map((k) => (
+                      <TextArea
+                        key={k}
+                        label={t(language, `${k}Label` as "situationLabel")}
+                        value={starDraft[k]}
+                        onChange={(e) => setStarDraft({ ...starDraft, [k]: e.target.value })}
+                        rows={3}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <TextArea
+                    label={t(language, "editAnswer")}
+                    labelHidden
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    rows={8}
+                    autoFocus
+                    className="text-lg"
+                  />
+                )}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Button size="sm" onClick={saveEdit} disabled={!draft.trim()}>
+                  <Button size="sm" onClick={saveEdit} disabled={starDraft ? !joinStar(starDraft).trim() : !draft.trim()}>
                     {t(language, "saveAnswer")}
                   </Button>
                   <Button size="sm" variant="secondary" onClick={cancelEdit}>
@@ -187,6 +245,34 @@ export default function Study() {
               <p className="text-lg leading-relaxed">{answer}</p>
             )}
           </section>
+
+          {q.star && !editing && !loading && (
+            <section aria-label="STAR breakdown" className="mt-4 rounded-2xl border border-line p-5 sm:p-6">
+              <button
+                type="button"
+                aria-expanded={showStar}
+                onClick={() => setShowStar(!showStar)}
+                className="flex w-full items-center justify-between text-start"
+              >
+                <h3 className="text-2xs font-semibold uppercase tracking-wider text-fg-muted">
+                  STAR breakdown — learn it part by part
+                </h3>
+                <span className="text-xs text-fg-muted">{showStar ? "Hide" : "Show"}</span>
+              </button>
+              {showStar && (
+                <ol className="mt-4 space-y-3">
+                  {(["situation", "task", "action", "result"] as const).map((k) => (
+                    <li key={k} className="grid gap-1 sm:grid-cols-[6.5rem_1fr]">
+                      <span className="text-2xs font-semibold uppercase tracking-wider text-accent-text">
+                        {t(language, `${k}Label` as "situationLabel")}
+                      </span>
+                      <span className="leading-relaxed">{q.star![k]}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
 
           {/* Set expectations before the drill starts: practice is two passes
               per question, and it is demanding. Arriving at it cold was a

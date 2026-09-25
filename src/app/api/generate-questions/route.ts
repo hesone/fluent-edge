@@ -3,12 +3,14 @@ import { LANG_LEVEL, LANG_NAME } from "@/lib/i18n";
 import { generateText, Output } from "ai";
 import { getLLM, llmLabel } from "@/lib/llm";
 import { z } from "zod";
+import { STAGES, KIND_RULES, SPOKEN_RULES, mixText, storyBankBlock, joinStar, hasStar } from "@/lib/interview";
+import type { InterviewStage, QuestionKind, Responsibility } from "@/store/useSessionStore";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
 export async function POST(req: NextRequest) {
-  const { resumeText, mode, seniority, language, convType, langLevel, situation, preferredQA } = await req.json();
+  const { resumeText, mode, seniority, language, convType, langLevel, situation, preferredQA, stage, jdText, responsibilities } = await req.json();
   const level = LANG_LEVEL[langLevel] || "C1";
   const langName = LANG_NAME[language] || "English";
   const genSituation = situation || 'in a random place or random situation'
@@ -92,6 +94,17 @@ Return ONLY valid JSON in this exact shape:
 
 }
 
+  // Interview mode now runs per stage (TA / HRM / ENM / Senior Engineer) and
+  // can draw on the JD and the learner's STAR story bank.
+  if (convType !== "general" && mode === "interview") {
+    return interviewStage({
+      stage: (stage in STAGES ? stage : "ta") as InterviewStage,
+      seniority, langName, resumeText, jdText,
+      responsibilities: Array.isArray(responsibilities) ? responsibilities : [],
+      userQAs, remaining, preferredBlock,
+    });
+  }
+
   try {
     const { model, providerOptions } = await getLLM();
     const { output } = await generateText({
@@ -119,6 +132,107 @@ Return ONLY valid JSON in this exact shape:
     return NextResponse.json({ questions, topic });
   } catch (e) {
     console.log(e)
+    return NextResponse.json(
+      { error: "Generation failed", detail: String(e), provider: await llmLabel().catch(() => "the LLM") },
+      { status: 500 }
+    );
+  }
+}
+
+const KINDS = ["behavioural", "technical", "system-design", "factual"] as const;
+
+async function interviewStage(o: {
+  stage: InterviewStage;
+  seniority: string;
+  langName: string;
+  resumeText?: string;
+  jdText?: string;
+  responsibilities: Responsibility[];
+  userQAs: { question: string; answer?: string }[];
+  remaining: number;
+  preferredBlock: (targetDesc: string) => string;
+}) {
+  const meta = STAGES[o.stage];
+  const bank = storyBankBlock(o.responsibilities);
+  const jd = (o.jdText || "").trim();
+
+  const prompt = `You are ${meta.interviewer}, and an expert ${o.langName} interview coach.
+Prepare a realistic ${meta.label} (${meta.short}) interview round for a ${o.seniority}-level candidate.
+
+THIS ROUND FOCUSES ON:
+${meta.focus.map((f) => `* ${f}`).join("\n")}
+
+${jd ? `JOB DESCRIPTION:\n"""\n${jd.slice(0, 12000)}\n"""\n` : "No job description provided. Assume a typical role matching the resume and seniority.\n"}
+RESUME:
+"""
+${o.resumeText || "No resume provided. Use a general professional background."}
+"""
+
+${bank ? `KEY RESPONSIBILITIES OF THIS ROLE AND THE CANDIDATE'S APPROVED STAR STORIES:\n${bank}\n` : jd ? "First work out the key responsibilities of this role from the job description.\n" : ""}
+${o.preferredBlock(`as questions a ${meta.label} would ask in this round`)}
+
+Create exactly ${o.remaining > 0 ? 10 : o.userQAs.length} questions${o.userQAs.length ? " in total including the preferred ones" : ""}. For the questions you write yourself use this mix of kinds: ${mixText(o.stage, Math.max(o.remaining, 0))}.
+
+For EACH question return:
+* id: 1..N
+* kind: one of "behavioural", "technical", "system-design", "factual"
+* question: what the ${meta.label} would actually ask, tied to the key responsibilities of this role${jd ? " and the job description" : ""}
+* responsibility: the title of the key responsibility it probes, or an empty string
+* star: situation, task, action, result
+* idealAnswer: the ideal spoken answer for a ${o.seniority} candidate
+
+How to write the ideal answer for each kind:
+${(Object.keys(KIND_RULES) as QuestionKind[]).map((k) => `* ${k}: ${KIND_RULES[k]}`).join("\n")}
+
+${bank ? `Rules for behavioural answers: build each one from ONE of the approved STAR stories above that fits the question, preferring the candidate's own stories. Use each story at most once. Keep the facts of the story; only adapt the wording to the question. Spread questions across the responsibilities.` : "Rules for behavioural answers: base them on concrete experience from the resume."}
+Never invent employers or facts that contradict the resume.
+${SPOKEN_RULES}
+All text must be in ${o.langName}.`;
+
+  try {
+    const { model, providerOptions } = await getLLM();
+    const { output } = await generateText({
+      model,
+      prompt,
+      output: Output.object({
+        schema: z.object({
+          questions: z.array(
+            z.object({
+              id: z.number(),
+              kind: z.string(),
+              question: z.string(),
+              responsibility: z.string(),
+              star: z.object({
+                situation: z.string(),
+                task: z.string(),
+                action: z.string(),
+                result: z.string(),
+              }),
+              idealAnswer: z.string(),
+            })
+          ),
+        }),
+      }),
+      ...(providerOptions ? { providerOptions } : {}),
+    });
+
+    const questions = (output?.questions ?? []).map((q, i) => {
+      const kind: QuestionKind = (KINDS as readonly string[]).includes(q.kind) ? (q.kind as QuestionKind) : "behavioural";
+      const star = kind === "behavioural" && hasStar(q.star) ? q.star : undefined;
+      return {
+        id: i + 1,
+        question: q.question,
+        stage: o.stage,
+        kind,
+        responsibility: q.responsibility || undefined,
+        star,
+        idealAnswer: q.idealAnswer?.trim() || (star ? joinStar(star) : ""),
+      };
+    });
+    if (questions.length === 0) throw new Error("empty");
+    return NextResponse.json({ questions, topic: `${o.seniority} - ${o.langName} - interview` });
+  } catch (e) {
+    console.log(e);
     return NextResponse.json(
       { error: "Generation failed", detail: String(e), provider: await llmLabel().catch(() => "the LLM") },
       { status: 500 }
