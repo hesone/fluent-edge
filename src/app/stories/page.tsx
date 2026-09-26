@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LuCheck, LuExternalLink, LuTriangleAlert, LuGauge, LuGlobe, LuPencil, LuRefreshCcw, LuSparkles, LuTrash2, LuWandSparkles, LuX,
+  LuArrowLeft, LuBuilding2, LuCheck, LuChevronRight, LuExternalLink, LuTriangleAlert, LuGauge, LuGlobe, LuPencil, LuRefreshCcw, LuSparkles, LuTrash2, LuWandSparkles, LuX,
 } from "react-icons/lu";
 import {
   useSessionStore, jdKeyOf, hashText, storyHashOf, INTERVIEW_STAGES, MIN_APPROVED_STORIES,
@@ -17,6 +17,7 @@ import Alert from "@/components/ui/Alert";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
 import { TextArea, TextField } from "@/components/ui/Field";
+import Drawer from "@/components/ui/Drawer";
 import PageShell from "@/components/ui/PageShell";
 import { SkeletonText } from "@/components/ui/Skeleton";
 
@@ -47,6 +48,10 @@ export default function Stories() {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState("");
   const [confirmRebuild, setConfirmRebuild] = useState(false);
+  // Two panes: the list of responsibilities and the one being worked on.
+  // On phones they are two screens; `showDetail` switches between them.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
   const started = useRef(false);
 
   async function build() {
@@ -119,12 +124,20 @@ export default function Stories() {
 
   const gaps = storyGaps(bank?.responsibilities, MIN_APPROVED_STORIES);
   const withOwn = (bank?.responsibilities.length ?? 0) - (bank?.responsibilities.filter((r) => !r.stories.some((s) => s.approved && s.source === "user")).length ?? 0);
+  const selected = bank?.responsibilities.find((r) => r.id === selectedId) ?? bank?.responsibilities[0];
+  function select(id: string) {
+    setSelectedId(id);
+    setShowDetail(true);
+    // On phones the detail replaces the list, so start it at the top.
+    if (typeof window !== "undefined" && window.innerWidth < 1024) window.scrollTo({ top: 0 });
+  }
 
   return (
     <PageShell
       eyebrow={`${t(language, "storyBank")}${bank?.jobTitle ? ` · ${bank.jobTitle}` : ""}`}
       title={t(language, "keyResponsibilities")}
-      lead="What this role is really about, with two STAR stories for each responsibility. Edit them until they're true to you, then answer the prompts to add stories of your own — they make the strongest answers."
+      lead="Pick a responsibility, check its STAR stories, and add one of your own — they make the strongest answers."
+      width="wide"
       backHref="/"
       backLabel="Set-up"
     >
@@ -153,66 +166,98 @@ export default function Stories() {
               onChange={(d) => setCompany(jdKey, d)}
             />
 
-            <Card pad="md" className="space-y-3">
-              <p className="font-semibold">
-                {withOwn} of {bank.responsibilities.length} responsibilities have a story of your own
-              </p>
-              <div
-                className="h-2 w-full overflow-hidden rounded-full bg-surface-2"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={bank.responsibilities.length}
-                aria-valuenow={withOwn}
-                aria-label="Responsibilities with your own story"
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[17rem_minmax(0,1fr)] lg:items-start">
+              {/* ── List of responsibilities (doubles as the progress overview) ── */}
+              <nav
+                aria-label={t(language, "keyResponsibilities")}
+                className={`${showDetail ? "hidden lg:block" : ""} space-y-3 lg:sticky lg:top-4`}
               >
-                <div className="h-full bg-accent transition-all" style={{ width: `${(withOwn / bank.responsibilities.length) * 100}%` }} />
+                <div>
+                  <p className="text-sm font-semibold">
+                    {withOwn} of {bank.responsibilities.length} have a story of your own
+                  </p>
+                  <div
+                    className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={bank.responsibilities.length}
+                    aria-valuenow={withOwn}
+                    aria-label="Responsibilities with your own story"
+                  >
+                    <div className="h-full bg-accent-text transition-all" style={{ width: `${(withOwn / bank.responsibilities.length) * 100}%` }} />
+                  </div>
+                </div>
+                <ol className="space-y-1.5">
+                  {bank.responsibilities.map((r, i) => {
+                    const own = r.stories.some((x) => x.approved && x.source === "user");
+                    const scores = r.stories.map((x) => x.evaluations?.[stage]?.score).filter((n): n is number => typeof n === "number");
+                    const best = scores.length ? Math.max(...scores) : null;
+                    const on = r.id === selected?.id;
+                    return (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          aria-current={on ? "true" : undefined}
+                          onClick={() => select(r.id)}
+                          className={`w-full rounded-xl border px-3 py-2.5 text-start transition-colors duration-fast ${
+                            on ? "border-fg bg-accent-soft" : "border-line bg-surface hover:border-line-strong"
+                          }`}
+                        >
+                          <span className="flex items-start gap-2">
+                            <span className="mt-0.5 text-xs font-semibold text-fg-muted">{i + 1}</span>
+                            <span className="min-w-0 flex-1 text-sm font-semibold leading-snug">{r.title}</span>
+                            <LuChevronRight aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-fg-muted flip-rtl lg:hidden" />
+                          </span>
+                          <span className="mt-1.5 flex flex-wrap items-center gap-1.5 ps-4 text-xs">
+                            {own ? (
+                              <span className="rounded-full bg-accent-soft px-2 py-0.5 font-semibold text-accent-text ring-1 ring-accent-text/40">✓ own story</span>
+                            ) : (
+                              <span className="rounded-full bg-warning-soft px-2 py-0.5 font-semibold text-warning">no own story</span>
+                            )}
+                            <span className="text-fg-muted">{r.stories.length} stor{r.stories.length === 1 ? "y" : "ies"}</span>
+                            {best !== null && (
+                              <span className="text-fg-muted">· {STAGES[stage].short} best <span className={`font-semibold ${scoreTone(best)}`}>{best}</span></span>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={building}
+                  loading={building}
+                  onClick={() => (confirmRebuild ? build() : setConfirmRebuild(true))}
+                >
+                  {!building && <LuRefreshCcw aria-hidden className="h-4 w-4" />}
+                  {confirmRebuild ? "Click again — replaces every story, including yours" : "Rebuild from the JD"}
+                </Button>
+              </nav>
+
+              {/* ── The selected responsibility ── */}
+              <div className={`min-w-0 ${showDetail ? "" : "hidden lg:block"}`}>
+                <Button variant="ghost" size="sm" className="mb-2 lg:hidden" onClick={() => setShowDetail(false)}>
+                  <LuArrowLeft aria-hidden className="h-4 w-4 flip-rtl" />
+                  All responsibilities
+                </Button>
+                {selected && (
+                  <ResponsibilityCard
+                    key={selected.id}
+                    index={bank.responsibilities.indexOf(selected) + 1}
+                    total={bank.responsibilities.length}
+                    resp={selected}
+                    language={language}
+                    seniority={seniority}
+                    ctx={{
+                      stage, company: bank.company, jobTitle: bank.jobTitle, seniority, language,
+                      respTitles: bank.responsibilities.map((x) => `${x.title} — ${x.summary}`),
+                    }}
+                    update={(fn) => updateResponsibility(jdKey, selected.id, fn)}
+                  />
+                )}
               </div>
-              <ol className="flex flex-wrap gap-2">
-                {bank.responsibilities.map((r, i) => {
-                  const own = r.stories.some((s) => s.approved && s.source === "user");
-                  return (
-                    <li key={r.id}>
-                      <a
-                        href={`#resp-${r.id}`}
-                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
-                          own ? "border-accent bg-accent-soft text-accent-text" : "border-line text-fg-muted hover:bg-surface-2"
-                        }`}
-                      >
-                        {own && <LuCheck aria-hidden className="h-3 w-3" />}
-                        {i + 1}. {r.title}
-                      </a>
-                    </li>
-                  );
-                })}
-              </ol>
-            </Card>
-
-            {bank.responsibilities.map((r, i) => (
-              <ResponsibilityCard
-                key={r.id}
-                index={i + 1}
-                resp={r}
-                language={language}
-                seniority={seniority}
-                ctx={{
-                  stage, company: bank.company, jobTitle: bank.jobTitle, seniority, language,
-                  respTitles: bank.responsibilities.map((x) => `${x.title} — ${x.summary}`),
-                }}
-                update={(fn) => updateResponsibility(jdKey, r.id, fn)}
-              />
-            ))}
-
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={building}
-                loading={building}
-                onClick={() => (confirmRebuild ? build() : setConfirmRebuild(true))}
-              >
-                {!building && <LuRefreshCcw aria-hidden className="h-4 w-4" />}
-                {confirmRebuild ? "Click again — this replaces every story, including yours" : "Rebuild from the job description"}
-              </Button>
             </div>
 
             {genError && <Alert tone="error" title="Couldn't build your questions">{genError}</Alert>}
@@ -225,17 +270,18 @@ export default function Stories() {
                 onChange={(s) => setOnboarding({ stage: s })}
               />
               {gaps.length > 0 ? (
-                <a
-                  href={`#resp-${gaps[0].r.id}`}
+                <button
+                  type="button"
+                  onClick={() => select(gaps[0].r.id)}
                   className="ms-auto flex min-w-0 items-center gap-1.5 text-sm text-warning hover:underline"
                   title="Responsibilities with no story of your own yet. You can still go ahead — the drafts will be used."
                 >
                   <LuTriangleAlert aria-hidden className="h-4 w-4 shrink-0" />
                   <span className="truncate">
                     {gaps.length}<span className="hidden sm:inline"> gap{gaps.length === 1 ? "" : "s"}</span>
-                    <span className="sr-only"> — responsibilities without a story of your own</span>
+                    <span className="sr-only"> — responsibilities without a story of your own. Show the first one.</span>
                   </span>
-                </a>
+                </button>
               ) : (
                 <span className="ms-auto flex items-center gap-1.5 text-sm text-accent-text" title="Every responsibility has a story of your own">
                   <LuCheck aria-hidden className="h-4 w-4" /><span className="sr-only">All responsibilities covered</span>
@@ -320,9 +366,10 @@ function StageTabs({
 }
 
 function ResponsibilityCard({
-  index, resp, language, seniority, ctx, update,
+  index, total, resp, language, seniority, ctx, update,
 }: {
   index: number;
+  total: number;
   resp: Responsibility;
   language: Lang;
   seniority: string;
@@ -358,21 +405,26 @@ function ResponsibilityCard({
   }
 
   const ownCount = resp.stories.filter((s) => s.source === "user").length;
+  // Show one prompt at a time: the first one without a story yet.
+  const [allPrompts, setAllPrompts] = useState(false);
+  const firstOpen = resp.prompts.find((p) => !p.storyId) ?? resp.prompts[0];
+  const visiblePrompts = allPrompts ? resp.prompts : firstOpen ? [firstOpen] : [];
+  const hiddenCount = resp.prompts.length - visiblePrompts.length;
 
   return (
-    <Card as="section" pad="lg" id={`resp-${resp.id}`} aria-labelledby={`resp-${resp.id}-h`} className="scroll-mt-24 space-y-6">
+    <Card as="section" pad="lg" aria-labelledby={`resp-${resp.id}-h`} className="space-y-6">
       <header>
-        <p className="eyebrow">Responsibility {index}</p>
+        <p className="eyebrow">Responsibility {index} of {total}</p>
         <h2 id={`resp-${resp.id}-h`} className="mt-1 text-2xl font-medium">{resp.title}</h2>
         <p className="mt-2 text-fg-muted">{resp.summary}</p>
       </header>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         <h3 className="text-2xs font-semibold uppercase tracking-wider text-fg-muted">
           STAR stories · {resp.stories.filter((s) => s.approved).length} in use
         </h3>
         {resp.stories.length === 0 && <p className="text-sm text-fg-muted">No stories yet — answer a prompt below.</p>}
-        <ul className="space-y-4">
+        <ul className="space-y-2">
           {resp.stories.map((s) => (
             <li key={s.id}>
               <StoryCard
@@ -381,6 +433,7 @@ function ResponsibilityCard({
                 hints={hints[s.id]}
                 ctx={ctx}
                 responsibility={`${resp.title} — ${resp.summary}`}
+                respTitle={resp.title}
                 onChange={(d) => setStory(s.id, d)}
                 onRemove={() => removeStory(s.id)}
               />
@@ -389,7 +442,7 @@ function ResponsibilityCard({
         </ul>
       </div>
 
-      <div className="space-y-4 border-t border-line pt-6">
+      <div className="space-y-3 border-t border-line pt-5">
         <div>
           <h3 className="font-semibold">{t(language, "moreStories")}</h3>
           <p className="mt-1 text-sm text-fg-muted">
@@ -399,7 +452,7 @@ function ResponsibilityCard({
           </p>
         </div>
         <ul className="space-y-3">
-          {resp.prompts.map((p) => (
+          {visiblePrompts.map((p) => (
             <li key={p.id}>
               <PromptItem
                 prompt={p}
@@ -412,7 +465,14 @@ function ResponsibilityCard({
             </li>
           ))}
         </ul>
-        <Button variant="ghost" size="sm" onClick={addPrompt}>+ I have a different story for this</Button>
+        <div className="flex flex-wrap gap-2">
+          {hiddenCount > 0 && (
+            <Button variant="secondary" size="sm" onClick={() => setAllPrompts(true)}>
+              +{hiddenCount} more idea{hiddenCount === 1 ? "" : "s"}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={() => { addPrompt(); setAllPrompts(true); }}>+ I have a different story for this</Button>
+        </div>
       </div>
     </Card>
   );
@@ -437,27 +497,31 @@ function scoreTone(score: number) {
 }
 
 function StoryCard({
-  story, language, hints, ctx, responsibility, onChange, onRemove,
+  story, language, hints, ctx, responsibility, respTitle, onChange, onRemove,
 }: {
   story: StarStory;
   language: Lang;
   hints?: string[];
   ctx: EvalContext;
   responsibility: string;
+  respTitle: string;
   onChange: (d: Partial<StarStory>) => void;
   onRemove: () => void;
 }) {
+  // New stories of your own open straight away (with their "make it stronger" hints).
+  const [expanded, setExpanded] = useState(!!hints?.length);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Draft>(story);
   const [evaluating, setEvaluating] = useState(false);
   const [evalError, setEvalError] = useState("");
-  const [shownStage, setShownStage] = useState<InterviewStage | null>(null);
+  const [panelStage, setPanelStage] = useState<InterviewStage | null>(null);
+  const bodyId = `story-${story.id}`;
   const parts = PARTS.map((k) => [k, t(language, `${k}Label` as "situationLabel")] as const);
 
   const evaluations = INTERVIEW_STAGES.map((s) => story.evaluations?.[s]).filter(Boolean) as StoryEvaluation[];
-  const visibleStage = shownStage && story.evaluations?.[shownStage] ? shownStage
-    : story.evaluations?.[ctx.stage] ? ctx.stage : evaluations[0]?.stage ?? null;
-  const shown = visibleStage ? story.evaluations?.[visibleStage] : undefined;
+  const current = story.evaluations?.[ctx.stage];
+  const currentFresh = !!current && !isStale(current, story, ctx.company);
+  const shown = panelStage ? story.evaluations?.[panelStage] : undefined;
 
   async function evaluate() {
     setEvaluating(true);
@@ -481,7 +545,7 @@ function StoryCard({
         createdAt: Date.now(),
       };
       onChange({ evaluations: { ...story.evaluations, [ctx.stage]: ev } });
-      setShownStage(ctx.stage);
+      setPanelStage(ctx.stage);
     } catch (e) {
       setEvalError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -490,103 +554,142 @@ function StoryCard({
   }
 
   return (
-    <div className={`rounded-xl border p-4 sm:p-5 ${story.approved ? "border-accent-text/30 bg-accent-soft" : "border-line bg-surface-2"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <span className={`inline-block rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider ${
-            story.source === "user" ? "bg-accent text-accent-fg" : "bg-surface text-fg-muted"
+    <div className={`rounded-xl border ${expanded ? "border-accent-text/40" : "border-line"} ${
+      story.approved ? "bg-surface" : "bg-surface-2"
+    }`}>
+      {/* Collapsed row: badge, title, score chips. The whole row toggles. */}
+      <div className="flex items-center gap-2 p-2 ps-3">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          onClick={() => setExpanded(!expanded)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-start"
+        >
+          <LuChevronRight aria-hidden className={`h-4 w-4 shrink-0 text-fg-muted transition-transform flip-rtl ${expanded ? "rotate-90" : ""}`} />
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider ${
+            story.source === "user" ? "bg-accent text-accent-fg" : "bg-surface-2 text-fg-muted"
           }`}>
-            {story.source === "user" ? "Your story" : "Draft from your résumé"}
+            {story.source === "user" ? "Yours" : "Draft"}
           </span>
-          {!editing && <h4 className="mt-2 font-semibold">{story.title}</h4>}
+          <span className={`min-w-0 flex-1 truncate font-semibold ${story.approved ? "" : "text-fg-muted line-through decoration-1"}`}>
+            {story.title}
+          </span>
+          {!story.approved && <span className="sr-only">(not used in interview)</span>}
+        </button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          {evaluations.map((ev) => {
+            const stale = isStale(ev, story, ctx.company);
+            return (
+              <button
+                key={ev.stage}
+                type="button"
+                onClick={() => setPanelStage(ev.stage)}
+                aria-label={`${STAGES[ev.stage].label} review: ${ev.score}${stale ? ", out of date" : ""}`}
+                className={`rounded-full border px-2 py-0.5 text-xs font-semibold hover:border-fg ${
+                  ev.stage === ctx.stage ? "border-line-strong" : "border-line"
+                } ${stale ? "opacity-60" : ""}`}
+              >
+                {STAGES[ev.stage].short} <span className={scoreTone(ev.score)}>{ev.score}</span>
+              </button>
+            );
+          })}
         </div>
-        {!editing && (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant={story.approved ? "primary" : "secondary"}
-              aria-pressed={story.approved}
-              onClick={() => onChange({ approved: !story.approved })}
-            >
-              {story.approved && <LuCheck aria-hidden className="h-4 w-4" />}
-              {story.approved ? t(language, "approved") : t(language, "approve")}
-            </Button>
-            <Button size="sm" variant="secondary" iconOnly aria-label="Edit story" onClick={() => { setDraft(story); setEditing(true); }}>
-              <LuPencil aria-hidden className="h-4 w-4" />
-            </Button>
-            <Button size="sm" variant="secondary" iconOnly aria-label="Delete story" onClick={onRemove}>
-              <LuTrash2 aria-hidden className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
       </div>
 
-      {editing ? (
-        <div className="mt-3 space-y-3">
-          <TextField label="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
-          {parts.map(([k, label]) => (
-            <TextArea key={k} label={label} rows={3} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
-          ))}
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => { onChange(draft); setEditing(false); }}>{t(language, "saveAnswer")}</Button>
-            <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>{t(language, "cancel")}</Button>
-          </div>
-        </div>
-      ) : (
-        <dl className="mt-3 space-y-2">
-          {parts.map(([k, label]) => (
-            <div key={k} className="grid gap-1 sm:grid-cols-[6.5rem_1fr]">
-              <dt className="text-2xs font-semibold uppercase tracking-wider text-accent-text">{label}</dt>
-              <dd className="leading-relaxed">{story[k]}</dd>
+      {expanded && (
+        <div id={bodyId} className="space-y-3 border-t border-line px-3 pb-3 pt-3">
+          {editing ? (
+            <div className="space-y-3">
+              <TextField label="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+              {parts.map(([k, label]) => (
+                <TextArea key={k} label={label} rows={3} value={draft[k]} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+              ))}
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => { onChange(draft); setEditing(false); }}>{t(language, "saveAnswer")}</Button>
+                <Button size="sm" variant="secondary" onClick={() => setEditing(false)}>{t(language, "cancel")}</Button>
+              </div>
             </div>
-          ))}
-        </dl>
+          ) : (
+            <dl className="space-y-2">
+              {parts.map(([k, label]) => (
+                <div key={k} className="grid gap-1 sm:grid-cols-[6.5rem_1fr]">
+                  <dt className="text-2xs font-semibold uppercase tracking-wider text-accent-text">{label}</dt>
+                  <dd className="leading-relaxed">{story[k]}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+
+          {!!hints?.length && !editing && (
+            <Alert tone="info" title="Make it stronger">
+              <ul className="list-disc space-y-1 ps-5">{hints.map((h) => <li key={h}>{h}</li>)}</ul>
+            </Alert>
+          )}
+
+          {!editing && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant={currentFresh ? "secondary" : "primary"}
+                loading={evaluating}
+                onClick={() => (currentFresh ? setPanelStage(ctx.stage) : evaluate())}
+              >
+                {!evaluating && <LuGauge aria-hidden className="h-4 w-4" />}
+                {currentFresh ? `${STAGES[ctx.stage].short} review · ${current!.score}` : `${current ? "Re-evaluate" : "Evaluate"} as ${STAGES[ctx.stage].short}`}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                aria-pressed={story.approved}
+                onClick={() => onChange({ approved: !story.approved })}
+              >
+                {story.approved && <LuCheck aria-hidden className="h-4 w-4" />}
+                {story.approved ? t(language, "approved") : t(language, "approve")}
+              </Button>
+              <span className="ms-auto flex gap-1">
+                <Button size="sm" variant="ghost" iconOnly aria-label="Edit story" onClick={() => { setDraft(story); setEditing(true); }}>
+                  <LuPencil aria-hidden className="h-4 w-4" />
+                </Button>
+                <Button size="sm" variant="ghost" iconOnly aria-label="Delete story" onClick={onRemove}>
+                  <LuTrash2 aria-hidden className="h-4 w-4" />
+                </Button>
+              </span>
+            </div>
+          )}
+          {!ctx.company?.text?.trim() && !editing && (
+            <p className="text-xs text-fg-muted">Tip: add the company profile at the top for a sharper verdict.</p>
+          )}
+          {evalError && <p role="alert" className="text-sm font-medium text-danger">{evalError}</p>}
+        </div>
       )}
 
-      {!!hints?.length && !editing && (
-        <Alert tone="info" className="mt-4" title="Make it stronger">
-          <ul className="list-disc space-y-1 ps-5">{hints.map((h) => <li key={h}>{h}</li>)}</ul>
-          <p className="mt-2 text-sm text-fg-muted">Add the details with the edit button, or answer the prompt again.</p>
-        </Alert>
-      )}
-
-      {!editing && (
-        <div className="mt-4 space-y-3 border-t border-line pt-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" loading={evaluating} onClick={evaluate}>
-              {!evaluating && <LuGauge aria-hidden className="h-4 w-4" />}
-              {story.evaluations?.[ctx.stage] ? "Re-evaluate" : "Evaluate"} as {STAGES[ctx.stage].short}
-            </Button>
-            {!ctx.company?.text?.trim() && (
-              <span className="text-xs text-fg-muted">Tip: add the company profile above for a sharper verdict.</span>
-            )}
-            {evaluations.length > 0 && (
-              <div role="tablist" aria-label="Evaluations by stage" className="ms-auto flex flex-wrap gap-1.5">
-                {evaluations.map((ev) => {
-                  const stale = isStale(ev, story, ctx.company);
-                  const on = ev.stage === visibleStage;
-                  return (
-                    <button
-                      key={ev.stage}
-                      type="button"
-                      role="tab"
-                      aria-selected={on}
-                      onClick={() => setShownStage(ev.stage)}
-                      className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                        on ? "border-accent bg-surface" : "border-line text-fg-muted hover:bg-surface"
-                      } ${stale ? "opacity-70" : ""}`}
-                    >
-                      {STAGES[ev.stage].short} <span className={scoreTone(ev.score)}>{ev.score}</span>
-                      {stale && <span className="sr-only"> (out of date)</span>}
-                      {stale && <span aria-hidden> · old</span>}
-                    </button>
-                  );
-                })}
+      <Drawer
+        open={!!shown}
+        onClose={() => setPanelStage(null)}
+        eyebrow={respTitle}
+        title={story.title}
+      >
+        {shown && (
+          <div className="space-y-4">
+            {evaluations.length > 1 && (
+              <div role="tablist" aria-label="Reviews by stage" className="flex flex-wrap gap-1.5">
+                {evaluations.map((ev) => (
+                  <button
+                    key={ev.stage}
+                    type="button"
+                    role="tab"
+                    aria-selected={ev.stage === shown.stage}
+                    onClick={() => setPanelStage(ev.stage)}
+                    className={`rounded-full border px-3 py-1 text-sm font-semibold ${
+                      ev.stage === shown.stage ? "border-accent bg-accent-soft" : "border-line text-fg-muted hover:bg-surface-2"
+                    }`}
+                  >
+                    {STAGES[ev.stage].icon} {STAGES[ev.stage].short} <span className={scoreTone(ev.score)}>{ev.score}</span>
+                  </button>
+                ))}
               </div>
             )}
-          </div>
-          {evalError && <p role="alert" className="text-sm font-medium text-danger">{evalError}</p>}
-          {shown && (
             <EvaluationPanel
               key={`${shown.stage}-${shown.createdAt}`}
               ev={shown}
@@ -598,9 +701,10 @@ function StoryCard({
               onReevaluate={shown.stage === ctx.stage ? evaluate : undefined}
               onAccept={(d) => onChange(d)}
             />
-          )}
-        </div>
-      )}
+            {evalError && <p role="alert" className="text-sm font-medium text-danger">{evalError}</p>}
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }
@@ -683,7 +787,7 @@ function EvaluationPanel({
               <Button size="sm" variant="secondary" loading={evaluating} onClick={onReevaluate}>Re-evaluate</Button>
             </div>
           ) : (
-            <> Switch the stage in the bar at the bottom to {STAGES[ev.stage].short} to re-evaluate.</>
+            <> To re-evaluate, close this panel and switch the stage in the bottom bar to {STAGES[ev.stage].short}.</>
           )}
         </Alert>
       )}
@@ -816,6 +920,8 @@ function CompanyCard({
   const [error, setError] = useState("");
   const name = company?.name ?? "";
   const text = company?.text ?? "";
+  // Once there is a profile, the card shrinks to one line until you open it.
+  const [open, setOpen] = useState(!text.trim());
 
   async function research() {
     setBusy(true);
@@ -834,6 +940,26 @@ function CompanyCard({
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!open && text.trim() && !busy) {
+    return (
+      <Card as="section" pad="none" aria-label="Company profile" className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+        <LuBuilding2 aria-hidden className="h-5 w-5 shrink-0 text-fg-muted" />
+        <span className="font-semibold">{name || "Company"}</span>
+        <span className="text-sm text-accent-text">profile ✓</span>
+        {!!company?.sources?.length && (
+          <span className="text-sm text-fg-muted">· {company.sources.length} source{company.sources.length === 1 ? "" : "s"}</span>
+        )}
+        <span className="hidden min-w-0 flex-1 truncate text-sm text-fg-muted sm:block">
+          — {text.replace(/\s+/g, " ").slice(0, 120)}
+        </span>
+        <Button size="sm" variant="secondary" className="ms-auto" aria-expanded={false} onClick={() => setOpen(true)}>
+          <LuPencil aria-hidden className="h-4 w-4" />
+          View / edit
+        </Button>
+      </Card>
+    );
   }
 
   return (
@@ -894,6 +1020,14 @@ function CompanyCard({
             ))}
           </ul>
         </details>
+      )}
+      {text.trim() && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => setOpen(false)} aria-expanded={true}>
+            <LuCheck aria-hidden className="h-4 w-4" />
+            Done
+          </Button>
+        </div>
       )}
     </Card>
   );
