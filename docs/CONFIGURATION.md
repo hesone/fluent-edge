@@ -29,3 +29,18 @@ per component.
 > **Free OpenRouter models** have per-day rate limits and vary in how reliably they return strict
 > JSON. If question generation or grading fails intermittently, switch `OPENROUTER_MODEL` to a more
 > capable (or paid) model. Ollama gets an explicit `format: "json"` nudge for the same reason.
+
+---
+
+## Company research (optional)
+
+The Story Bank page has a **Search the web** button that researches the hiring company and writes
+a short profile the story evaluator uses. How it searches depends on the LLM provider:
+
+| LLM provider | How it searches | Needs |
+|---|---|---|
+| OpenRouter (online) | The model searches the web itself through OpenRouter's `web` plugin, and cites its sources | Credits on your OpenRouter account — about $0.007 per lookup, charged even with free models |
+| Ollama (local) | 4 [Tavily](https://tavily.com) searches, then Ollama summarises them | `TAVILY_API_KEY` — free plan, 1,000 credits/month, no card |
+
+Without what your mode needs, the button explains what's missing; you can still type the profile yourself.
+Searching sends the **company name** (and nothing about you) to the search service — see [Privacy](PRIVACY.md).

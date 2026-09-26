@@ -15,6 +15,11 @@ language processing. Be aware of what leaves the user's device:
   generation and grammar grading.
 - **Preferred Q&A:** user-entered questions/answers are stored in browser `localStorage` (Zustand
   persist) and sent to **OpenRouter** when generating a session.
+- **Company research (optional):** the **Search the web** button on the Story Bank page sends the
+  company name you typed to a search service — **OpenRouter's web search** in online mode, **Tavily**
+  in local mode. Your résumé, stories and the JD are not part of the search.
+- **Job description, company profile and STAR stories:** stored in browser `localStorage` and sent
+  to the configured LLM when building the story bank, evaluating or improving a story.
 - **Video (webcam frames):** processed **locally** by MediaPipe and never transmitted.
 - **Session recordings:** stored as in-memory object URLs in the browser and cleared on page reload.
 - **No first-party analytics, telemetry, or tracking** is included in this codebase.

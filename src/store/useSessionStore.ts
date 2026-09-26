@@ -20,12 +20,41 @@ export interface StarParts {
   result: string;
 }
 
+export type PartRating = "strong" | "ok" | "weak" | "missing";
+
+/** An interviewer's in-character review of one story, from one stage's perspective. */
+export interface StoryEvaluation {
+  stage: InterviewStage;
+  /** 0-100: how well the story covers this responsibility as the company needs it now. */
+  score: number;
+  verdict: string;
+  /** In-character opening line, e.g. "As the Engineering Manager at Acme, …". */
+  voice: string;
+  parts: Record<keyof StarParts, { rating: PartRating; note: string }>;
+  strengths: string[];
+  gaps: string[];
+  /** Hashes of the story and company text it was made from — a mismatch means it is out of date. */
+  storyHash: string;
+  companyHash: string;
+  createdAt: number;
+}
+
 export interface StarStory extends StarParts {
   id: string;
   title: string;
   /** "ai" = drafted from the résumé, "user" = written from the learner's own answer. */
   source: "ai" | "user";
   approved: boolean;
+  /** One saved evaluation per interview stage. */
+  evaluations?: Partial<Record<InterviewStage, StoryEvaluation>>;
+}
+
+export interface CompanyProfile {
+  name: string;
+  /** Free text the learner writes or the web search fills in; editable. */
+  text: string;
+  sources: { title: string; url: string }[];
+  researchedAt?: number;
 }
 
 export interface StoryPrompt {
@@ -49,6 +78,7 @@ export interface Responsibility {
 export interface StoryBank {
   jdKey: string;
   jobTitle: string;
+  company?: CompanyProfile;
   responsibilities: Responsibility[];
   updatedAt: number;
 }
@@ -65,13 +95,23 @@ export interface QA {
   responsibility?: string;
 }
 
-/** Stable short key for a JD so the same posting reuses its story bank. */
-export function jdKeyOf(text: string): string {
+/** Short, stable hash of some text (whitespace and case insensitive). */
+export function hashText(text: string): string {
   const norm = text.replace(/\s+/g, " ").trim().toLowerCase();
   let h = 5381;
   for (let i = 0; i < norm.length; i++) h = ((h << 5) + h + norm.charCodeAt(i)) | 0;
-  return norm ? `jd_${(h >>> 0).toString(36)}_${norm.length}` : "";
+  return norm ? `${(h >>> 0).toString(36)}_${norm.length}` : "";
 }
+
+/** Stable short key for a JD so the same posting reuses its story bank. */
+export function jdKeyOf(text: string): string {
+  const h = hashText(text);
+  return h ? `jd_${h}` : "";
+}
+
+/** What an evaluation depends on in a story — editing any of it makes the evaluation stale. */
+export const storyHashOf = (s: StarParts & { title: string }) =>
+  hashText([s.title, s.situation, s.task, s.action, s.result].join("|"));
 
 export const MIN_APPROVED_STORIES = 2;
 
@@ -120,6 +160,7 @@ interface SessionState {
   setOnboarding: (d: Partial<Pick<SessionState, "resumeText" | "language" | "mode" | "topic" | "seniority" | "convType" | "langLevel" | "situation" | "stage" | "jdText">>) => void;
   setStoryBank: (bank: StoryBank) => void;
   updateResponsibility: (jdKey: string, respId: string, fn: (r: Responsibility) => Responsibility) => void;
+  setCompany: (jdKey: string, d: Partial<CompanyProfile>) => void;
   addPreferredQA: (tab: Converstion, question: string, answer: string) => void;
   updatePreferredQA: (tab: Converstion, id: number, d: Partial<Pick<PreferredQA, "question" | "answer">>) => void;
   removePreferredQA: (tab: Converstion, id: number) => void;
@@ -160,6 +201,12 @@ export const useSessionStore = create<SessionState>()(
       setOnboarding: (d) => set(d),
       setStoryBank: (bank) =>
         set({ storyBanks: { ...get().storyBanks, [bank.jdKey]: { ...bank, updatedAt: Date.now() } } }),
+      setCompany: (jdKey, d) => {
+        const bank = get().storyBanks[jdKey];
+        if (!bank) return;
+        const company: CompanyProfile = { name: "", text: "", sources: [], ...bank.company, ...d };
+        set({ storyBanks: { ...get().storyBanks, [jdKey]: { ...bank, company, updatedAt: Date.now() } } });
+      },
       updateResponsibility: (jdKey, respId, fn) => {
         const bank = get().storyBanks[jdKey];
         if (!bank) return;

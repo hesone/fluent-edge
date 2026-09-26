@@ -81,7 +81,7 @@ export function TextArea({
   return (
     <Field {...{ label, hint, error, labelHidden, className, id, describedBy }}>
       {(p) => (
-        <textarea {...p} {...rest} rows={rows} className={`${CONTROL} py-3 leading-relaxed`} />
+        <textarea {...p} {...rest} rows={rows} className={`${CONTROL} resize-none py-3 leading-relaxed`} />
       )}
     </Field>
   );

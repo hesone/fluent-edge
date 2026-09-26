@@ -80,3 +80,18 @@ export async function llmLabel(): Promise<string> {
   const { provider, modelId } = await getLLM();
   return provider === "ollama" ? `Ollama (${modelId})` : `OpenRouter (${modelId})`;
 }
+
+/**
+ * A model that can search the web by itself — OpenRouter's `web` plugin.
+ * Returns null for Ollama, which has no built-in search (the company-research
+ * route falls back to Tavily there). Web search is billed by OpenRouter per
+ * request (about $0.007 with the default engine), even with free models.
+ */
+export async function getWebSearchModel(maxResults = 8): Promise<LanguageModel | null> {
+  const { provider } = await getLLM();
+  if (provider !== "openrouter") return null;
+  const openrouter = createOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY ?? "" });
+  return openrouter.chat(OPENROUTER_MODEL, {
+    plugins: [{ id: "web", max_results: maxResults }],
+  }) as LanguageModel;
+}

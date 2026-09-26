@@ -49,7 +49,7 @@ Do these three things:
 
 3. PROMPTS FOR MORE STORIES — For EACH responsibility write exactly 3 short, targeted prompts that ask the candidate to recall ADDITIONAL experiences that would showcase this responsibility, for example "Tell me about a time you had to …" or "Think of a project where you …". Make them cover angles the two drafted stories do not (a failure or lesson, a conflict or stakeholder angle, a scale or impact angle).
 
-Also return jobTitle: the job title from the JD.
+Also return jobTitle: the job title from the JD, and companyName: the hiring company's name if the JD states it, otherwise an empty string.
 
 ${SPOKEN_RULES}
 All text must be in ${langName}.`;
@@ -62,6 +62,7 @@ All text must be in ${langName}.`;
       output: Output.object({
         schema: z.object({
           jobTitle: z.string(),
+          companyName: z.string(),
           responsibilities: z.array(
             z.object({
               title: z.string(),

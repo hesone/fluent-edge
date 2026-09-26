@@ -14,6 +14,9 @@ export const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 export const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3.2:latest";
 export const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-oss-120b:free";
 
+/** Web search for the company-research button (Story Bank). Free key at https://tavily.com */
+export const TAVILY_API_KEY = process.env.TAVILY_API_KEY || "";
+
 let ollamaProbe: Promise<boolean> | null = null;
 
 async function probeOllama(): Promise<boolean> {
