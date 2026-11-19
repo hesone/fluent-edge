@@ -57,7 +57,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Applies the stored theme before first paint so there is no flash. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <Analytics/>
       </head>
       <body className={`${sans.variable} ${display.variable} ${arabic.variable} font-sans`}>
         {/* Glow + grain, fixed behind every route. */}
@@ -67,6 +66,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </a>
         <DocumentLanguage />
         {children}
+        <Analytics />
       </body>
     </html>
   );
