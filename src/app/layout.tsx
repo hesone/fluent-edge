@@ -3,6 +3,7 @@ import localFont from "next/font/local";
 import "./globals.css";
 import DocumentLanguage from "@/components/DocumentLanguage";
 import { themeInitScript } from "@/lib/theme";
+import { Analytics } from "@vercel/analytics/next";
 
 // Self-hosted variable fonts: no network call at build or at run time, so the
 // offline/local mode keeps working. Inter covers Latin; Vazirmatn covers the
@@ -56,6 +57,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Applies the stored theme before first paint so there is no flash. */}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <Analytics/>
       </head>
       <body className={`${sans.variable} ${display.variable} ${arabic.variable} font-sans`}>
         {/* Glow + grain, fixed behind every route. */}
